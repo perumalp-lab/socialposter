@@ -1,7 +1,7 @@
 services:
   - type: web
     name: socialposter
-    runtime: python
+    runtime: python3
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn --bind 0.0.0.0:$PORT socialposter.web.app:create_app
     envVars:
