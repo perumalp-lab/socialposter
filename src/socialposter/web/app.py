@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from pathlib import Path
 from typing import Any
 
+import sqlalchemy
 from flask import Flask, Blueprint, jsonify, render_template, request, send_from_directory
 from flask_cors import CORS
 from flask_login import LoginManager, current_user, login_required
@@ -402,10 +404,16 @@ def create_app(test_config: dict | None = None) -> Flask:
 
     # Create tables
     with app.app_context():
-        db.create_all()
+        try:
+            db.create_all()
+        except sqlalchemy.exc.OperationalError as exc:
+            message = str(exc).lower()
+            if "already exists" in message or "table users already exists" in message:
+                logging.warning("Database table already exists during startup; continuing.")
+            else:
+                raise
 
         # Auto-migration: add missing columns to existing tables
-        import sqlalchemy
         with db.engine.connect() as conn:
             inspector = sqlalchemy.inspect(db.engine)
             if "users" in inspector.get_table_names():
