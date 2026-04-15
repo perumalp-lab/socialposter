@@ -333,10 +333,15 @@ def create_app(test_config: dict | None = None) -> Flask:
         "SOCIALPOSTER_SECRET_KEY", "dev-secret-change-me-in-production"
     )
 
-    # SQLite database in the config dir
-    db_path = DATA_DIR / "socialposter.db"
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{db_path}"
+    # Database configuration
+    database_url = os.environ.get("DATABASE_URL")
+    if database_url:
+        app.config["SQLALCHEMY_DATABASE_URI"] = database_url
+    else:
+        # SQLite database in the config dir
+        db_path = DATA_DIR / "socialposter.db"
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{db_path}"
 
     # Apply test overrides early so they affect DB init
     if test_config:
