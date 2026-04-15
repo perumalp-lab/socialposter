@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import mimetypes
+import os
 import uuid
 from pathlib import Path
 
@@ -14,7 +15,8 @@ from socialposter.utils.team import get_current_team_id
 from socialposter.web.models import MediaAsset, db
 from socialposter.web.token_auth import token_or_session_required
 
-UPLOAD_DIR = Path.home() / ".socialposter" / "uploads"
+DATA_DIR = Path(os.environ.get("SOCIALPOSTER_DATA_DIR", str(Path.home() / ".socialposter")))
+UPLOAD_DIR = DATA_DIR / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 media_bp = Blueprint("media", __name__)

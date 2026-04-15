@@ -9,6 +9,8 @@ services:
         generateValue: true
       - key: SOCIALPOSTER_ENCRYPTION_KEY
         generateValue: true
+      - key: SOCIALPOSTER_DATA_DIR
+        value: /opt/render/project/.socialposter
       - key: FLASK_APP
         value: socialposter.web.app:create_app
       - key: PYTHON_VERSION

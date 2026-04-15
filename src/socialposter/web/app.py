@@ -31,7 +31,8 @@ from socialposter.web.token_auth import token_or_session_required
 # Ensure all platform plugins are imported / registered
 import socialposter.platforms  # noqa: F401
 
-UPLOAD_DIR = Path.home() / ".socialposter" / "uploads"
+DATA_DIR = Path(os.environ.get("SOCIALPOSTER_DATA_DIR", str(Path.home() / ".socialposter")))
+UPLOAD_DIR = DATA_DIR / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 template_dir = Path(__file__).parent / "templates"
@@ -49,6 +50,12 @@ main_bp = Blueprint("main", __name__)
 def index():
     """Serve the main UI."""
     return render_template("index.html")
+
+
+@main_bp.route("/test")
+def test():
+    """Test route to check if app is running."""
+    return "OK"
 
 
 @main_bp.route("/connections")
@@ -327,7 +334,7 @@ def create_app(test_config: dict | None = None) -> Flask:
     )
 
     # SQLite database in the config dir
-    db_path = Path.home() / ".socialposter" / "socialposter.db"
+    db_path = DATA_DIR / "socialposter.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
     app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{db_path}"
 
@@ -401,6 +408,11 @@ def create_app(test_config: dict | None = None) -> Flask:
                calendar_bp, team_bp, draft_bp, inbox_bp, media_bp,
                automation_bp, user_ai_bp, webhook_bp, competitor_bp):
         csrf.exempt(bp)
+
+    @app.errorhandler(500)
+    def internal_error(error):
+        logging.exception("Internal Server Error")
+        return "Internal Server Error", 500
 
     # Create tables
     with app.app_context():
