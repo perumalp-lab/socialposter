@@ -1,0 +1,25 @@
+services:
+  web:
+    build: .
+    env_file: .env
+    volumes:
+      - socialposter_data:/data
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data/caddy
+      - caddy_config:/config/caddy
+    depends_on:
+      - web
+    restart: unless-stopped
+
+volumes:
+  socialposter_data:
+  caddy_data:
+  caddy_config:

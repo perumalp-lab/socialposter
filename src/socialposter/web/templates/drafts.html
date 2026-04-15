@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block title %}Drafts – SocialPoster{% endblock %}
+
+{% block topbar_nav %}
+<nav class="topbar-nav" id="topbar-nav">
+  <a href="{{ url_for('main.index') }}">Compose</a>
+  <a href="{{ url_for('analytics.dashboard') }}">Analytics</a>
+  <a href="{{ url_for('calendar_view.calendar_page') }}">Calendar</a>
+  <a href="{{ url_for('drafts.drafts_page') }}" class="active">Drafts</a>
+  <a href="{{ url_for('inbox.inbox_page') }}">Inbox</a>
+  <a href="{{ url_for('main.connections') }}">Connections</a>
+  <a href="{{ url_for('automation.automation_page') }}">Automation</a>
+  <a href="{{ url_for('webhooks.webhooks_page') }}">Webhooks</a>
+  <a href="{{ url_for('competitors.competitors_page') }}">Competitors</a>
+  {% if current_user.is_admin %}
+  <a href="{{ url_for('team.team_page') }}">Team</a>
+  <a href="{{ url_for('admin.settings') }}">Admin</a>
+  {% endif %}
+  <a href="{{ url_for('auth.logout') }}">Log out</a>
+</nav>
+{% endblock %}
+
+{% block bottom_bar %}
+<nav class="bottom-bar" id="bottom-bar">
+  <a href="{{ url_for('main.index') }}" class="bottom-bar-item">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h14M4 11h8M4 16h10"/></svg>
+    <span>Compose</span>
+  </a>
+  <a href="{{ url_for('drafts.drafts_page') }}" class="bottom-bar-item active">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
+    <span>Drafts</span>
+  </a>
+  <a href="{{ url_for('calendar_view.calendar_page') }}" class="bottom-bar-item">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 2v4M14 2v4M3 8h16M3 5h16v14H3z"/></svg>
+    <span>Calendar</span>
+  </a>
+  <a href="{{ url_for('inbox.inbox_page') }}" class="bottom-bar-item">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7l8 5 8-5M3 7v10h16V7"/></svg>
+    <span>Inbox</span>
+  </a>
+</nav>
+{% endblock %}
+
+{% block content %}
+<main class="settings-container">
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <h1 class="card-title" style="margin-bottom:0;">
+        <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
+        Drafts
+      </h1>
+      <button class="btn btn-primary btn-sm" id="btn-new-draft">+ New Draft</button>
+    </div>
+
+    <div class="drafts-filters">
+      <select id="filter-status" class="form-select-sm">
+        <option value="">All Statuses</option>
+        <option value="draft">Draft</option>
+        <option value="pending_approval">Pending Approval</option>
+        <option value="approved">Approved</option>
+        <option value="rejected">Rejected</option>
+        <option value="published">Published</option>
+      </select>
+    </div>
+
+    <div id="drafts-list"></div>
+  </div>
+
+  <!-- New Draft Modal -->
+  <div class="modal-overlay" id="new-draft-modal" style="display:none">
+    <div class="modal-card" style="max-width:560px;">
+      <div class="modal-header">
+        <h3>New Draft</h3>
+        <button class="btn btn-sm btn-outline" id="modal-close-draft">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="draft-name">Name</label>
+          <input type="text" id="draft-name" placeholder="Draft name" />
+        </div>
+        <div class="form-group">
+          <label for="draft-text">Content</label>
+          <textarea id="draft-text" rows="5" placeholder="Write your post..."></textarea>
+        </div>
+        <div class="form-group">
+          <label for="draft-platforms">Platforms (comma-separated)</label>
+          <input type="text" id="draft-platforms" placeholder="facebook, twitter, linkedin" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" id="btn-save-draft">Save Draft</button>
+      </div>
+    </div>
+  </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/drafts.js') }}"></script>
+{% endblock %}

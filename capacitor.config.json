@@ -1,0 +1,21 @@
+{
+  "appId": "com.socialposter.app",
+  "appName": "SocialPoster",
+  "webDir": "src/socialposter/web/static",
+  "server": {
+    "url": "http://localhost:5000",
+    "cleartext": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "backgroundColor": "#6366f1",
+      "launchAutoHide": true,
+      "launchShowDuration": 2000,
+      "showSpinner": false
+    },
+    "StatusBar": {
+      "style": "LIGHT",
+      "backgroundColor": "#6366f1"
+    }
+  }
+}

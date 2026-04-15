@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "socialposter"
+version = "0.1.0"
+description = "Post content to LinkedIn, YouTube, Instagram, Facebook, X (Twitter), and WhatsApp from one web UI."
+requires-python = ">=3.11"
+authors = [{ name = "Perumal Pangala" }]
+license = { text = "MIT" }
+readme = "README.md"
+
+dependencies = [
+    "rich>=13.0",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "requests>=2.31",
+    "tweepy>=4.14",
+    "google-api-python-client>=2.100",
+    "google-auth-oauthlib>=1.0",
+    "google-auth-httplib2>=0.2",
+    "flask>=3.0",
+    "flask-login>=0.6",
+    "flask-sqlalchemy>=3.1",
+    "apscheduler>=3.10",
+    "flask-cors>=4.0",
+    "pyjwt>=2.8",
+    "python-dotenv>=1.0",
+    "flask-wtf>=1.2",
+    "cryptography>=42.0",
+    "flask-migrate>=4.0",
+    "gunicorn>=22.0",
+    "google-generativeai>=0.5",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-mock>=3.0"]
+
+[project.scripts]
+socialposter = "socialposter.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

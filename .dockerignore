@@ -1,0 +1,11 @@
+.venv
+node_modules
+ios
+android
+__pycache__
+.git
+.env
+*.db
+tests/
+.pytest_cache
+.vscode

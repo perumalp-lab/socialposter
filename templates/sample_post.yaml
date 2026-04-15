@@ -1,0 +1,116 @@
+# =============================================================
+# SocialPoster – Sample Content File
+# =============================================================
+# This file defines a single "post" that gets published to
+# multiple social media platforms with one command:
+#
+#   socialposter post templates/sample_post.yaml
+#
+# Each platform section can override the default text/media.
+# Set  enabled: false  to skip a platform.
+# =============================================================
+
+version: "1.0"
+
+# ---------------------------------------------------------------
+# Default content – used by any platform that doesn't override it
+# ---------------------------------------------------------------
+defaults:
+  text: |
+    Excited to share my latest project – SocialPoster!
+    A CLI tool that lets you publish content to 6 social platforms at once.
+
+    #OpenSource #Automation #AI #DevTools
+  media: []
+    # - path: ./images/banner.jpg
+    #   type: image
+    #   alt_text: "SocialPoster banner"
+
+# ---------------------------------------------------------------
+# Platform-specific overrides
+# ---------------------------------------------------------------
+platforms:
+
+  linkedin:
+    enabled: true
+    text: |
+      I just built something I'm really excited about – SocialPoster.
+
+      It's a Python CLI tool that lets you compose a post once
+      and publish to LinkedIn, YouTube, Instagram, Facebook,
+      X (Twitter), and WhatsApp with a single command.
+
+      No more copy-pasting across platforms!
+
+      Tech stack: Python, Typer, Pydantic, OAuth 2.0
+
+      Would love your feedback. Link in comments.
+
+      #OpenSource #Python #Automation #DevTools #AI
+    visibility: public
+
+  twitter:
+    enabled: true
+    text: |
+      Just shipped SocialPoster – a Python CLI to post to 6 platforms at once.
+
+      One YAML file. One command. LinkedIn, YouTube, Instagram, Facebook, X, WhatsApp.
+
+      #OpenSource #Python #DevTools
+    # thread:
+    #   - "Here's how it works: you write your content in a YAML file..."
+    #   - "Then run: socialposter post content.yaml"
+
+  facebook:
+    enabled: false
+    page_id: "YOUR_PAGE_ID"
+    text: |
+      Check out SocialPoster – a new CLI tool to post to all your
+      social media platforms from one command!
+    link: "https://github.com/yourusername/socialposter"
+
+  youtube:
+    enabled: false
+    title: "SocialPoster Demo – Post to 6 Platforms with One Command"
+    description: |
+      In this video I demo SocialPoster, a Python CLI tool that lets you
+      compose content once and publish to LinkedIn, YouTube, Instagram,
+      Facebook, X (Twitter), and WhatsApp with a single command.
+
+      Timestamps:
+      0:00 - Intro
+      0:30 - Writing a content file
+      2:00 - Running the CLI
+      3:00 - Verifying posts on each platform
+    tags: ["socialposter", "python", "cli", "automation", "social media"]
+    category_id: 28
+    privacy: unlisted
+    # media:
+    #   - path: ./videos/demo.mp4
+    #     type: video
+    #   - path: ./images/thumbnail.jpg
+    #     type: thumbnail
+
+  instagram:
+    enabled: false
+    text: |
+      One tool. Six platforms. Zero hassle.
+      SocialPoster lets you publish everywhere at once.
+      Link in bio!
+
+      #Python #DevTools #OpenSource #Automation
+    post_type: feed
+    # media:
+    #   - path: https://your-hosting.com/images/banner.jpg
+    #     type: image
+
+  whatsapp:
+    enabled: false
+    text: "Check out my new project SocialPoster! https://github.com/yourusername/socialposter"
+    recipients:
+      - "+1234567890"
+    # template_name: "project_launch"
+    # template_language: "en"
+    # template_params:
+    #   - "SocialPoster"
+    #   - "https://github.com/yourusername/socialposter"

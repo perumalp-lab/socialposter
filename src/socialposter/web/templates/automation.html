@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+
+{% block title %}Automation – SocialPoster{% endblock %}
+
+{% block topbar_nav %}
+<nav class="topbar-nav" id="topbar-nav">
+  <a href="{{ url_for('main.index') }}">Compose</a>
+  <a href="{{ url_for('analytics.dashboard') }}">Analytics</a>
+  <a href="{{ url_for('calendar_view.calendar_page') }}">Calendar</a>
+  <a href="{{ url_for('drafts.drafts_page') }}">Drafts</a>
+  <a href="{{ url_for('inbox.inbox_page') }}">Inbox</a>
+  <a href="{{ url_for('media.media_page') }}">Media</a>
+  <a href="{{ url_for('main.connections') }}">Connections</a>
+  <a href="{{ url_for('automation.automation_page') }}" class="active">Automation</a>
+  <a href="{{ url_for('webhooks.webhooks_page') }}">Webhooks</a>
+  <a href="{{ url_for('competitors.competitors_page') }}">Competitors</a>
+  {% if current_user.is_admin %}
+  <a href="{{ url_for('team.team_page') }}">Team</a>
+  <a href="{{ url_for('admin.settings') }}">Admin</a>
+  {% endif %}
+  <a href="{{ url_for('auth.logout') }}">Log out</a>
+</nav>
+{% endblock %}
+
+{% block bottom_bar %}
+<nav class="bottom-bar" id="bottom-bar">
+  <a href="{{ url_for('main.index') }}" class="bottom-bar-item">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h14M4 11h8M4 16h10"/></svg>
+    <span>Compose</span>
+  </a>
+  <a href="{{ url_for('analytics.dashboard') }}" class="bottom-bar-item">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 18V8M10 18V4M16 18v-6"/></svg>
+    <span>Analytics</span>
+  </a>
+  <a href="{{ url_for('automation.automation_page') }}" class="bottom-bar-item active">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v4M12 18v2M4.93 4.93l2.83 2.83M16.24 16.24l1.42 1.42M2 12h4M18 12h2"/></svg>
+    <span>Automate</span>
+  </a>
+  <a href="{{ url_for('inbox.inbox_page') }}" class="bottom-bar-item">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7l8 5 8-5M3 7v10h16V7"/></svg>
+    <span>Inbox</span>
+  </a>
+</nav>
+{% endblock %}
+
+{% block content %}
+<main class="automation-container">
+  <div class="automation-header">
+    <h1 class="analytics-page-title">Automation Rules</h1>
+    <button class="btn btn-primary btn-sm" id="btn-new-rule">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 1v12M1 7h12"/></svg>
+      Create Rule
+    </button>
+  </div>
+
+  <div class="card">
+    <div id="rules-list"></div>
+  </div>
+
+  <!-- Create Rule Modal -->
+  <div class="modal-overlay" id="rule-modal" style="display:none">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Create Automation Rule</h3>
+        <button class="btn btn-outline btn-sm" id="modal-close-rule">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="rule-name">Rule Name</label>
+          <input type="text" id="rule-name" placeholder="e.g. Alert on viral posts" />
+        </div>
+        <div class="form-group">
+          <label for="rule-trigger">Trigger Type</label>
+          <select id="rule-trigger">
+            <option value="engagement_threshold">Engagement Threshold</option>
+            <option value="no_post_interval">No Post Interval</option>
+          </select>
+        </div>
+
+        <!-- Engagement threshold conditions -->
+        <div id="cond-engagement" class="rule-conditions">
+          <div class="form-group">
+            <label for="cond-threshold">Engagement Threshold (total likes+comments+shares)</label>
+            <input type="number" id="cond-threshold" value="100" min="1" />
+          </div>
+          <div class="form-group">
+            <label for="cond-platform">Platform (optional)</label>
+            <input type="text" id="cond-platform" placeholder="e.g. twitter (leave empty for all)" />
+          </div>
+          <div class="form-group">
+            <label for="cond-days">Lookback (days)</label>
+            <input type="number" id="cond-days" value="7" min="1" />
+          </div>
+        </div>
+
+        <!-- No post interval conditions -->
+        <div id="cond-nopost" class="rule-conditions" style="display:none">
+          <div class="form-group">
+            <label for="cond-hours">Hours without posting</label>
+            <input type="number" id="cond-hours" value="24" min="1" />
+          </div>
+          <div class="form-group">
+            <label for="cond-nopost-platform">Platform (optional)</label>
+            <input type="text" id="cond-nopost-platform" placeholder="e.g. linkedin (leave empty for all)" />
+          </div>
+        </div>
+
+        <hr style="margin:16px 0;border:none;border-top:1px solid var(--border);" />
+
+        <div class="form-group">
+          <label for="rule-action">Action</label>
+          <select id="rule-action">
+            <option value="notify">Notify (Alert)</option>
+            <option value="ai_generate">AI Generate Content</option>
+            <option value="repost">Repost to Other Platforms</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="action-message">Action Details / Message</label>
+          <input type="text" id="action-message" placeholder="Optional: custom message or topic" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline btn-sm" id="btn-cancel-rule">Cancel</button>
+        <button class="btn btn-primary btn-sm" id="btn-save-rule">Save Rule</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Logs Modal -->
+  <div class="modal-overlay" id="logs-modal" style="display:none">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Execution Logs</h3>
+        <button class="btn btn-outline btn-sm" id="logs-modal-close">&times;</button>
+      </div>
+      <div class="modal-body" id="logs-body"></div>
+    </div>
+  </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/automation.js') }}"></script>
+{% endblock %}

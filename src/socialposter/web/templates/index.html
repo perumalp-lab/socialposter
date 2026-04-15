@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+
+{% block title %}SocialPoster{% endblock %}
+
+{% block topbar_nav %}
+<nav class="topbar-nav" id="topbar-nav">
+  <a href="{{ url_for('main.index') }}" class="active">Compose</a>
+  <a href="{{ url_for('analytics.dashboard') }}">Analytics</a>
+  <a href="{{ url_for('calendar_view.calendar_page') }}">Calendar</a>
+  <a href="{{ url_for('drafts.drafts_page') }}">Drafts</a>
+  <a href="{{ url_for('inbox.inbox_page') }}">Inbox</a>
+  <a href="{{ url_for('media.media_page') }}">Media</a>
+  <a href="{{ url_for('main.connections') }}">Connections</a>
+  <a href="{{ url_for('automation.automation_page') }}">Automation</a>
+  <a href="{{ url_for('webhooks.webhooks_page') }}">Webhooks</a>
+  <a href="{{ url_for('competitors.competitors_page') }}">Competitors</a>
+  {% if current_user.is_admin %}
+  <a href="{{ url_for('team.team_page') }}">Team</a>
+  <a href="{{ url_for('admin.settings') }}">Admin</a>
+  {% endif %}
+  <a href="{{ url_for('auth.logout') }}">Log out</a>
+</nav>
+{% endblock %}
+
+{% block topbar_actions %}
+<div class="topbar-actions">
+  <button id="btn-dry-run" class="btn btn-outline" title="Validate without publishing">
+    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 2"/></svg>
+    Dry Run
+  </button>
+  <button id="btn-publish" class="btn btn-primary">
+    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 14l6-12 6 12"/><path d="M4.5 9h7"/></svg>
+    Publish
+  </button>
+</div>
+{% endblock %}
+
+{% block bottom_bar %}
+<nav class="bottom-bar" id="bottom-bar">
+  <a href="{{ url_for('main.index') }}" class="bottom-bar-item active">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h14M4 11h8M4 16h10"/></svg>
+    <span>Compose</span>
+  </a>
+  <a href="{{ url_for('analytics.dashboard') }}" class="bottom-bar-item">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 18V8M10 18V4M16 18v-6"/></svg>
+    <span>Analytics</span>
+  </a>
+  <button class="bottom-bar-item bottom-bar-publish" id="mobile-publish-btn" type="button">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 14l6-12 6 12"/><path d="M4.5 9h7"/></svg>
+    <span>Publish</span>
+  </button>
+  <a href="{{ url_for('calendar_view.calendar_page') }}" class="bottom-bar-item">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 2v4M14 2v4M3 8h16M3 5h16v14H3z"/></svg>
+    <span>Calendar</span>
+  </a>
+  <a href="{{ url_for('inbox.inbox_page') }}" class="bottom-bar-item">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7l8 5 8-5M3 7v10h16V7"/></svg>
+    <span>Inbox</span>
+  </a>
+</nav>
+{% endblock %}
+
+{% block content %}
+<main class="app-layout">
+  <!-- LEFT: COMPOSER -->
+  <section class="composer-panel">
+    <!-- Platform Selector -->
+    <div class="card">
+      <h2 class="card-title">
+        <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="2" width="16" height="16" rx="3"/><path d="M7 10l2 2 4-4"/></svg>
+        Platforms
+      </h2>
+      <div class="platform-grid" id="platform-grid">
+        <!-- Populated by JS -->
+      </div>
+    </div>
+
+    <!-- Text Composer -->
+    <div class="card">
+      <h2 class="card-title">
+        <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h12M4 10h8M4 14h10"/></svg>
+        Content
+      </h2>
+      <div class="ai-toolbar" id="ai-toolbar">
+        <button type="button" class="btn btn-outline btn-sm" id="btn-ai-generate" title="Generate content with AI">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 1v12M1 7h12"/></svg>
+          AI Generate
+        </button>
+        <button type="button" class="btn btn-outline btn-sm" id="btn-ai-optimize" title="Optimize text for each platform">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 10l4-6 4 6"/><path d="M10 4l2 2-2 2"/></svg>
+          Optimize All
+        </button>
+        <div class="ai-model-selector">
+          <select id="ai-model-select" class="form-select-sm" title="AI Model">
+            <option value="">Default</option>
+          </select>
+          <input type="range" id="ai-creativity-slider" min="0" max="100" value="70" title="Creativity" class="ai-slider" />
+          <span id="ai-creativity-label" class="ai-slider-label">0.7</span>
+        </div>
+      </div>
+      <div class="ai-prompt-row" id="ai-prompt-row" style="display:none">
+        <input type="text" id="ai-topic-input" placeholder="Enter a topic and press Enter..." />
+        <button type="button" class="btn btn-primary btn-sm" id="btn-ai-submit">Go</button>
+        <button type="button" class="btn btn-outline btn-sm" id="btn-ai-cancel">Cancel</button>
+      </div>
+      <div class="ai-structured-form" id="ai-structured-form" style="display:none">
+        <div class="ai-structured-row">
+          <div class="ai-field">
+            <label for="ai-struct-topic">Topic</label>
+            <input type="text" id="ai-struct-topic" placeholder="What should the post be about?" />
+          </div>
+        </div>
+        <div class="ai-structured-row">
+          <div class="ai-field">
+            <label for="ai-struct-audience">Audience</label>
+            <select id="ai-struct-audience">
+              <option value="">General</option>
+              <option value="professionals">Professionals</option>
+              <option value="gen-z">Gen Z</option>
+              <option value="millennials">Millennials</option>
+              <option value="small-business">Small Business Owners</option>
+              <option value="developers">Developers</option>
+              <option value="creatives">Creatives</option>
+            </select>
+          </div>
+          <div class="ai-field">
+            <label for="ai-struct-goal">Goal</label>
+            <select id="ai-struct-goal">
+              <option value="">Engagement</option>
+              <option value="awareness">Brand Awareness</option>
+              <option value="traffic">Drive Traffic</option>
+              <option value="sales">Sales / Conversion</option>
+              <option value="education">Educate</option>
+              <option value="community">Community Building</option>
+            </select>
+          </div>
+          <div class="ai-field">
+            <label for="ai-struct-tone">Tone</label>
+            <select id="ai-struct-tone">
+              <option value="">Balanced</option>
+              <option value="professional">Professional</option>
+              <option value="casual">Casual</option>
+              <option value="humorous">Humorous</option>
+              <option value="inspirational">Inspirational</option>
+              <option value="urgent">Urgent</option>
+            </select>
+          </div>
+        </div>
+        <div class="ai-structured-actions">
+          <button type="button" class="btn btn-primary btn-sm" id="btn-ai-struct-submit">Generate Content</button>
+          <button type="button" class="btn btn-outline btn-sm" id="btn-ai-struct-cancel">Cancel</button>
+        </div>
+      </div>
+      <div class="ai-results-panel" id="ai-results-panel" style="display:none">
+        <div class="ai-results-header">
+          <strong>AI Results</strong>
+          <button type="button" class="btn btn-outline btn-sm" id="btn-ai-results-close">&times;</button>
+        </div>
+        <div id="ai-results-body"></div>
+      </div>
+      <div class="textarea-wrap">
+        <textarea id="post-text" placeholder="What's on your mind? Write your post here..." rows="6"></textarea>
+        <div class="char-counter" id="char-counter">0</div>
+      </div>
+    </div>
+
+    <!-- Media Upload -->
+    <div class="card">
+      <h2 class="card-title">
+        <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="2" width="16" height="16" rx="2"/><circle cx="8" cy="8" r="2"/><path d="M18 14l-4-4-8 8"/></svg>
+        Media
+      </h2>
+      <div class="upload-zone" id="upload-zone">
+        <input type="file" id="file-input" multiple accept="image/*,video/*" hidden />
+        <input type="file" id="camera-input" accept="image/*" capture="environment" hidden />
+        <div class="upload-placeholder" id="upload-placeholder">
+          <svg width="40" height="40" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round">
+            <rect x="4" y="4" width="32" height="32" rx="4" stroke-dasharray="4 3"/>
+            <path d="M20 14v12M14 20h12"/>
+          </svg>
+          <p>Drag & drop images or videos here</p>
+          <span>or <button type="button" class="link-btn" id="browse-btn">browse files</button></span>
+          <button type="button" class="link-btn mobile-only" id="camera-btn" style="display:none;">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="8" cy="9" r="3"/><path d="M2 7a2 2 0 012-2h1.5l1-2h5l1 2H14a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2z"/></svg>
+            Take Photo
+          </button>
+          <small>Supports JPG, PNG, GIF, MP4, MOV, AVI, WebM</small>
+          <a href="{{ url_for('media.media_page') }}" class="btn btn-outline btn-sm" style="margin-top:8px;">Browse Library</a>
+        </div>
+        <div class="media-preview-list" id="media-preview-list"></div>
+      </div>
+    </div>
+
+    <!-- Platform Overrides (collapsible) -->
+    <div class="card" id="overrides-card" style="display:none">
+      <h2 class="card-title">
+        <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v4M12 18v2M4.93 4.93l2.83 2.83M16.24 16.24l1.42 1.42M2 12h4M18 12h2M4.93 19.07l2.83-2.83M16.24 7.76l1.42-1.42"/></svg>
+        Platform Overrides
+        <small class="muted">(optional)</small>
+      </h2>
+      <div id="overrides-container"></div>
+    </div>
+  </section>
+
+  <!-- RIGHT: LIVE PREVIEW -->
+  <aside class="preview-panel">
+    <div class="card preview-card">
+      <h2 class="card-title">
+        <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="16" height="14" rx="2"/><path d="M8 21h4M10 17v4"/></svg>
+        Live Preview
+      </h2>
+      <div class="preview-tabs" id="preview-tabs"></div>
+      <div class="preview-body" id="preview-body">
+        <div class="preview-empty">
+          <svg width="48" height="48" fill="none" stroke="#cbd5e1" stroke-width="1.5" stroke-linecap="round">
+            <circle cx="24" cy="24" r="20"/>
+            <path d="M16 20h16M16 28h8"/>
+          </svg>
+          <p>Select platforms and start typing to see a preview</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Results Panel (hidden until publish) -->
+    <div class="card results-card" id="results-card" style="display:none">
+      <h2 class="card-title">
+        <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 11l3 3 5-5"/><circle cx="10" cy="10" r="8"/></svg>
+        Results
+      </h2>
+      <div id="results-body"></div>
+    </div>
+  </aside>
+</main>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toast-container"></div>
+
+<!-- Loading Overlay -->
+<div class="loading-overlay" id="loading-overlay" style="display:none">
+  <div class="spinner"></div>
+  <p id="loading-text">Publishing...</p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{% block title %}Team – SocialPoster{% endblock %}
+
+{% block topbar_nav %}
+<nav class="topbar-nav" id="topbar-nav">
+  <a href="{{ url_for('main.index') }}">Compose</a>
+  <a href="{{ url_for('analytics.dashboard') }}">Analytics</a>
+  <a href="{{ url_for('calendar_view.calendar_page') }}">Calendar</a>
+  <a href="{{ url_for('drafts.drafts_page') }}">Drafts</a>
+  <a href="{{ url_for('inbox.inbox_page') }}">Inbox</a>
+  <a href="{{ url_for('main.connections') }}">Connections</a>
+  <a href="{{ url_for('automation.automation_page') }}">Automation</a>
+  <a href="{{ url_for('webhooks.webhooks_page') }}">Webhooks</a>
+  <a href="{{ url_for('competitors.competitors_page') }}">Competitors</a>
+  <a href="{{ url_for('team.team_page') }}" class="active">Team</a>
+  {% if current_user.is_admin %}
+  <a href="{{ url_for('admin.settings') }}">Admin</a>
+  {% endif %}
+  <a href="{{ url_for('auth.logout') }}">Log out</a>
+</nav>
+{% endblock %}
+
+{% block bottom_bar %}
+<nav class="bottom-bar" id="bottom-bar">
+  <a href="{{ url_for('main.index') }}" class="bottom-bar-item">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h14M4 11h8M4 16h10"/></svg>
+    <span>Compose</span>
+  </a>
+  <a href="{{ url_for('analytics.dashboard') }}" class="bottom-bar-item">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 18V8M10 18V4M16 18v-6"/></svg>
+    <span>Analytics</span>
+  </a>
+  <a href="{{ url_for('calendar_view.calendar_page') }}" class="bottom-bar-item">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 2v4M14 2v4M3 8h16M3 5h16v14H3z"/></svg>
+    <span>Calendar</span>
+  </a>
+  <a href="{{ url_for('team.team_page') }}" class="bottom-bar-item active">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M16 18v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 8a3 3 0 100-6 3 3 0 000 6z"/></svg>
+    <span>Team</span>
+  </a>
+</nav>
+{% endblock %}
+
+{% block content %}
+<main class="settings-container">
+  {% if not team %}
+  <div class="card">
+    <h1 class="card-title">Create Your Team</h1>
+    <p class="settings-desc">You don't belong to a team yet. Create one to start collaborating.</p>
+    <div class="form-group">
+      <label for="team-name">Team Name</label>
+      <input type="text" id="team-name" placeholder="e.g. Marketing Team" />
+    </div>
+    <button class="btn btn-primary" id="btn-create-team">Create Team</button>
+    <div id="team-msg" style="margin-top:12px;"></div>
+  </div>
+  {% else %}
+  <div class="card">
+    <h1 class="card-title">
+      <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M16 18v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 8a3 3 0 100-6 3 3 0 000 6z"/></svg>
+      {{ team.name }}
+    </h1>
+    <p class="settings-desc">Your role: <strong>{{ role }}</strong></p>
+
+    <h3 style="margin-top:20px;margin-bottom:12px;font-size:.95rem;">Members</h3>
+    <div class="team-members-list">
+      {% for m in members %}
+      <div class="team-member-row" data-id="{{ m.id }}">
+        <div class="team-member-info">
+          <strong>{{ m.user.display_name }}</strong>
+          <span class="team-member-email">{{ m.user.email }}</span>
+        </div>
+        <div class="team-member-actions">
+          <span class="draft-status-badge badge-{{ m.role }}">{{ m.role }}</span>
+          {% if role == 'admin' and m.user_id != current_user.id %}
+          <select class="form-select-sm role-select" data-member-id="{{ m.id }}">
+            <option value="admin" {{ 'selected' if m.role == 'admin' }}>Admin</option>
+            <option value="editor" {{ 'selected' if m.role == 'editor' }}>Editor</option>
+            <option value="viewer" {{ 'selected' if m.role == 'viewer' }}>Viewer</option>
+          </select>
+          <label style="display:inline-flex;align-items:center;gap:4px;font-size:0.8rem;cursor:pointer;">
+            <input type="checkbox" class="site-admin-toggle" data-user-id="{{ m.user_id }}"
+                   {{ 'checked' if m.user.is_admin }} />
+            Site Admin
+          </label>
+          <button class="btn btn-sm btn-danger btn-remove-member" data-member-id="{{ m.id }}">Remove</button>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% if role == 'admin' %}
+    <h3 style="margin-top:24px;margin-bottom:12px;font-size:.95rem;">Invite User</h3>
+    <div style="display:flex;gap:8px;align-items:end;">
+      <div class="form-group" style="flex:1;margin-bottom:0;">
+        <label for="invite-email">Email</label>
+        <input type="email" id="invite-email" placeholder="user@example.com" />
+      </div>
+      <div class="form-group" style="margin-bottom:0;">
+        <label for="invite-role">Role</label>
+        <select id="invite-role" class="form-select-sm">
+          <option value="editor">Editor</option>
+          <option value="viewer">Viewer</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+      <button class="btn btn-primary btn-sm" id="btn-invite">Invite</button>
+    </div>
+    <div id="invite-msg" style="margin-top:8px;"></div>
+    {% endif %}
+  </div>
+  {% endif %}
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/team.js') }}"></script>
+{% endblock %}

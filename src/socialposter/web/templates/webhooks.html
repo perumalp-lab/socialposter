@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+
+{% block title %}Webhooks – SocialPoster{% endblock %}
+
+{% block topbar_nav %}
+<nav class="topbar-nav" id="topbar-nav">
+  <a href="{{ url_for('main.index') }}">Compose</a>
+  <a href="{{ url_for('analytics.dashboard') }}">Analytics</a>
+  <a href="{{ url_for('calendar_view.calendar_page') }}">Calendar</a>
+  <a href="{{ url_for('drafts.drafts_page') }}">Drafts</a>
+  <a href="{{ url_for('inbox.inbox_page') }}">Inbox</a>
+  <a href="{{ url_for('media.media_page') }}">Media</a>
+  <a href="{{ url_for('main.connections') }}">Connections</a>
+  <a href="{{ url_for('automation.automation_page') }}">Automation</a>
+  <a href="{{ url_for('webhooks.webhooks_page') }}" class="active">Webhooks</a>
+  <a href="{{ url_for('competitors.competitors_page') }}">Competitors</a>
+  {% if current_user.is_admin %}
+  <a href="{{ url_for('team.team_page') }}">Team</a>
+  <a href="{{ url_for('admin.settings') }}">Admin</a>
+  {% endif %}
+  <a href="{{ url_for('auth.logout') }}">Log out</a>
+</nav>
+{% endblock %}
+
+{% block bottom_bar %}
+<nav class="bottom-bar" id="bottom-bar">
+  <a href="{{ url_for('main.index') }}" class="bottom-bar-item">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h14M4 11h8M4 16h10"/></svg>
+    <span>Compose</span>
+  </a>
+  <a href="{{ url_for('analytics.dashboard') }}" class="bottom-bar-item">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 18V8M10 18V4M16 18v-6"/></svg>
+    <span>Analytics</span>
+  </a>
+  <a href="{{ url_for('webhooks.webhooks_page') }}" class="bottom-bar-item active">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+    <span>Webhooks</span>
+  </a>
+  <a href="{{ url_for('inbox.inbox_page') }}" class="bottom-bar-item">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7l8 5 8-5M3 7v10h16V7"/></svg>
+    <span>Inbox</span>
+  </a>
+</nav>
+{% endblock %}
+
+{% block content %}
+<main class="automation-container">
+  <div class="automation-header">
+    <h1 class="analytics-page-title">Webhooks</h1>
+  </div>
+
+  <!-- Outbound Endpoints -->
+  <div class="card" style="margin-bottom:24px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h2 style="margin:0;font-size:1.1rem">Outbound Endpoints</h2>
+      <button class="btn btn-primary btn-sm" id="btn-new-endpoint">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 1v12M1 7h12"/></svg>
+        Add Endpoint
+      </button>
+    </div>
+    <div id="endpoints-list"></div>
+  </div>
+
+  <!-- Inbound Tokens -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h2 style="margin:0;font-size:1.1rem">Inbound Tokens</h2>
+      <button class="btn btn-primary btn-sm" id="btn-new-token">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 1v12M1 7h12"/></svg>
+        Create Token
+      </button>
+    </div>
+    <div id="tokens-list"></div>
+  </div>
+
+  <!-- Endpoint Modal -->
+  <div class="modal-overlay" id="endpoint-modal" style="display:none">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Add Webhook Endpoint</h3>
+        <button class="btn btn-outline btn-sm" id="modal-close-endpoint">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="ep-name">Name</label>
+          <input type="text" id="ep-name" placeholder="e.g. n8n workflow" />
+        </div>
+        <div class="form-group">
+          <label for="ep-url">URL</label>
+          <input type="url" id="ep-url" placeholder="https://your-webhook-url.com/hook" />
+        </div>
+        <div class="form-group">
+          <label>Events (leave empty for all)</label>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">
+            <label><input type="checkbox" class="ep-event" value="post.published"> post.published</label>
+            <label><input type="checkbox" class="ep-event" value="post.failed"> post.failed</label>
+            <label><input type="checkbox" class="ep-event" value="comment.received"> comment.received</label>
+            <label><input type="checkbox" class="ep-event" value="engagement.threshold"> engagement.threshold</label>
+            <label><input type="checkbox" class="ep-event" value="automation.triggered"> automation.triggered</label>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline btn-sm" id="btn-cancel-endpoint">Cancel</button>
+        <button class="btn btn-primary btn-sm" id="btn-save-endpoint">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Logs Modal -->
+  <div class="modal-overlay" id="logs-modal" style="display:none">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Delivery Logs</h3>
+        <button class="btn btn-outline btn-sm" id="logs-modal-close">&times;</button>
+      </div>
+      <div class="modal-body" id="logs-body"></div>
+    </div>
+  </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/webhooks.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block title %}Draft: {{ draft.name }} – SocialPoster{% endblock %}
+
+{% block topbar_nav %}
+<nav class="topbar-nav" id="topbar-nav">
+  <a href="{{ url_for('main.index') }}">Compose</a>
+  <a href="{{ url_for('analytics.dashboard') }}">Analytics</a>
+  <a href="{{ url_for('calendar_view.calendar_page') }}">Calendar</a>
+  <a href="{{ url_for('drafts.drafts_page') }}" class="active">Drafts</a>
+  <a href="{{ url_for('inbox.inbox_page') }}">Inbox</a>
+  <a href="{{ url_for('main.connections') }}">Connections</a>
+  <a href="{{ url_for('automation.automation_page') }}">Automation</a>
+  <a href="{{ url_for('webhooks.webhooks_page') }}">Webhooks</a>
+  <a href="{{ url_for('competitors.competitors_page') }}">Competitors</a>
+  {% if current_user.is_admin %}
+  <a href="{{ url_for('team.team_page') }}">Team</a>
+  <a href="{{ url_for('admin.settings') }}">Admin</a>
+  {% endif %}
+  <a href="{{ url_for('auth.logout') }}">Log out</a>
+</nav>
+{% endblock %}
+
+{% block content %}
+<main class="settings-container" data-draft-id="{{ draft.id }}">
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <h1 class="card-title" style="margin-bottom:0;" id="draft-title">{{ draft.name }}</h1>
+      <span class="draft-status-badge badge-{{ draft.status }}" id="draft-status-badge">{{ draft.status }}</span>
+    </div>
+
+    <div id="draft-content">
+      <div class="form-group">
+        <label>Content</label>
+        <textarea id="detail-text" rows="6" {% if draft.status not in ('draft', 'rejected') %}disabled{% endif %}>{{ draft.text }}</textarea>
+      </div>
+      <div class="form-group">
+        <label>Platforms</label>
+        <input type="text" id="detail-platforms" value="{{ draft.platforms | join(', ') }}" {% if draft.status not in ('draft', 'rejected') %}disabled{% endif %} />
+      </div>
+    </div>
+
+    <!-- Action bar -->
+    <div class="draft-actions" id="draft-actions">
+      {% if draft.status in ('draft', 'rejected') %}
+      <button class="btn btn-primary btn-sm" id="btn-save-changes">Save Changes</button>
+      <button class="btn btn-outline btn-sm" id="btn-submit-review">Submit for Review</button>
+      <button class="btn btn-danger btn-sm" id="btn-delete-draft">Delete</button>
+      {% endif %}
+      {% if draft.status == 'pending_approval' and current_user.is_admin %}
+      <button class="btn btn-primary btn-sm" id="btn-approve">Approve</button>
+      <button class="btn btn-danger btn-sm" id="btn-reject">Reject</button>
+      {% endif %}
+      {% if draft.status == 'approved' %}
+      <button class="btn btn-primary btn-sm" id="btn-publish-draft">Publish Now</button>
+      {% endif %}
+    </div>
+
+    <!-- Review info -->
+    {% if draft.review_comment %}
+    <div class="alert alert-info" style="margin-top:16px;">
+      <strong>Review by {{ draft.reviewer.display_name if draft.reviewer else 'Unknown' }}:</strong>
+      {{ draft.review_comment }}
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Comments -->
+  <div class="card">
+    <h2 class="card-title">Comments</h2>
+    <div id="comments-list"></div>
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <input type="text" id="comment-input" placeholder="Add a comment..." style="flex:1;" />
+      <button class="btn btn-primary btn-sm" id="btn-add-comment">Post</button>
+    </div>
+  </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/drafts.js') }}"></script>
+{% endblock %}

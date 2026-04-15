@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: socialposter
+    runtime: python
+    buildCommand: pip install .
+    startCommand: gunicorn "socialposter.web.app:create_app()" --bind 0.0.0.0:$PORT --workers 2
+    envVars:
+      - key: SOCIALPOSTER_SECRET_KEY
+        generateValue: true
+      - key: SOCIALPOSTER_ENCRYPTION_KEY
+        generateValue: true
+      - key: FLASK_APP
+        value: socialposter.web.app:create_app
+      - key: PYTHON_VERSION
+        value: "3.12"

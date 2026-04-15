@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+
+{% block title %}Connections – SocialPoster{% endblock %}
+
+{% block topbar_nav %}
+<nav class="topbar-nav" id="topbar-nav">
+  <a href="{{ url_for('main.index') }}">Compose</a>
+  <a href="{{ url_for('analytics.dashboard') }}">Analytics</a>
+  <a href="{{ url_for('calendar_view.calendar_page') }}">Calendar</a>
+  <a href="{{ url_for('drafts.drafts_page') }}">Drafts</a>
+  <a href="{{ url_for('inbox.inbox_page') }}">Inbox</a>
+  <a href="{{ url_for('media.media_page') }}">Media</a>
+  <a href="{{ url_for('main.connections') }}" class="active">Connections</a>
+  <a href="{{ url_for('automation.automation_page') }}">Automation</a>
+  <a href="{{ url_for('webhooks.webhooks_page') }}">Webhooks</a>
+  <a href="{{ url_for('competitors.competitors_page') }}">Competitors</a>
+  {% if current_user.is_admin %}
+  <a href="{{ url_for('team.team_page') }}">Team</a>
+  <a href="{{ url_for('admin.settings') }}">Admin</a>
+  {% endif %}
+  <a href="{{ url_for('auth.logout') }}">Log out</a>
+</nav>
+{% endblock %}
+
+{% block bottom_bar %}
+<nav class="bottom-bar" id="bottom-bar">
+  <a href="{{ url_for('main.index') }}" class="bottom-bar-item">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h14M4 11h8M4 16h10"/></svg>
+    <span>Compose</span>
+  </a>
+  <a href="{{ url_for('analytics.dashboard') }}" class="bottom-bar-item">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 18V8M10 18V4M16 18v-6"/></svg>
+    <span>Analytics</span>
+  </a>
+  <a href="{{ url_for('main.connections') }}" class="bottom-bar-item active">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 2v4M14 2v4M3 8h16M3 5h16v14H3z"/></svg>
+    <span>Connect</span>
+  </a>
+  <a href="{{ url_for('inbox.inbox_page') }}" class="bottom-bar-item">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7l8 5 8-5M3 7v10h16V7"/></svg>
+    <span>Inbox</span>
+  </a>
+</nav>
+{% endblock %}
+
+{% block content %}
+<main class="connections-container">
+  <div class="card connections-card">
+    <h1 class="card-title">
+      <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="2" width="16" height="16" rx="3"/><path d="M7 10l2 2 4-4"/></svg>
+      Platform Connections
+    </h1>
+    <p class="settings-desc">
+      Connect your social media accounts to publish posts.
+      Meta connect links Facebook, Instagram, and WhatsApp in one step.
+    </p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <!-- Meta group -->
+    <div class="conn-group">
+      <div class="conn-group-title">Meta Platforms</div>
+      <div class="conn-row">
+        <div class="conn-platforms">
+          {% for p in platforms if p.name in ('facebook', 'instagram', 'whatsapp') %}
+          <div class="conn-platform-badge {{ 'connected' if p.connected else 'disconnected' }}">
+            <span class="conn-dot"></span>
+            {{ p.display_name }}
+            {% if p.connected %}
+              {% if p.get('is_expired') %}
+                <span class="conn-status-pill expired">Expired</span>
+              {% else %}
+                <span class="conn-status-pill active">Active</span>
+              {% endif %}
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        <div class="conn-actions">
+          {% set meta_connected = platforms|selectattr('name', 'equalto', 'facebook')|selectattr('connected')|list %}
+          {% if meta_connected %}
+            <form method="POST" action="{{ url_for('oauth.disconnect', platform='facebook') }}" style="display:inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+              <button type="submit" class="btn btn-sm btn-danger">Disconnect Meta</button>
+            </form>
+          {% else %}
+            <a href="{{ url_for('oauth.connect', platform='meta') }}" class="btn btn-sm btn-primary">Connect Meta</a>
+          {% endif %}
+        </div>
+      </div>
+      {% for p in platforms if p.name == 'facebook' and p.connected %}
+      <div class="conn-detail-row">
+        {% if p.account_name %}<span class="conn-account-name">{{ p.account_name }}</span>{% endif %}
+        {% if p.connected_at %}<span class="conn-since">Connected {{ p.connected_at[:10] }}</span>{% endif %}
+        {% if p.expires_at %}
+          <span class="conn-expiry {% if p.is_expired %}expired{% endif %}">
+            {% if p.is_expired %}Token expired {{ p.expires_at[:10] }}{% else %}Expires {{ p.expires_at[:10] }}{% endif %}
+          </span>
+        {% endif %}
+      </div>
+      {% endfor %}
+
+      {% if meta_connected %}
+      <div class="conn-config" style="padding:0.75rem 1rem;border-top:1px solid var(--border,#e5e7eb);font-size:0.875rem;">
+        {% for p in platforms if p.name == 'facebook' %}
+        {% if p.extra_data and p.extra_data.page_id %}
+        <div style="margin-bottom:0.4rem;color:var(--text-muted,#6b7280);">
+          <strong>Facebook Page ID:</strong> {{ p.extra_data.page_id }}
+          {% if p.extra_data.page_name %} ({{ p.extra_data.page_name }}){% endif %}
+        </div>
+        {% endif %}
+        {% endfor %}
+
+        {% for p in platforms if p.name == 'instagram' %}
+        {% if p.extra_data and p.extra_data.business_account_id %}
+        <div style="margin-bottom:0.4rem;color:var(--text-muted,#6b7280);">
+          <strong>Instagram Business Account:</strong> {{ p.extra_data.business_account_id }}
+        </div>
+        {% endif %}
+        {% endfor %}
+
+        {% for p in platforms if p.name == 'whatsapp' %}
+        <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.4rem;">
+          <label for="wa-phone-id" style="white-space:nowrap;"><strong>WhatsApp Phone Number ID:</strong></label>
+          <input id="wa-phone-id" type="text" class="form-input"
+                 value="{{ p.extra_data.phone_number_id if p.extra_data and p.extra_data.phone_number_id else '' }}"
+                 placeholder="e.g. 112233445566778"
+                 style="flex:1;padding:0.35rem 0.5rem;border:1px solid var(--border,#d1d5db);border-radius:6px;font-size:0.85rem;" />
+          <button onclick="saveConfig('whatsapp','phone_number_id',document.getElementById('wa-phone-id').value,this)"
+                  class="btn btn-sm btn-primary">Save</button>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Individual platforms -->
+    {% for p in platforms if p.name not in ('facebook', 'instagram', 'whatsapp') %}
+    <div class="conn-group">
+      <div class="conn-row">
+        <div class="conn-platform-badge {{ 'connected' if p.connected else 'disconnected' }}">
+          <span class="conn-dot"></span>
+          {{ p.display_name }}
+          {% if p.connected %}
+            {% if p.get('is_expired') %}
+              <span class="conn-status-pill expired">Expired</span>
+            {% else %}
+              <span class="conn-status-pill active">Active</span>
+            {% endif %}
+          {% endif %}
+        </div>
+        <div class="conn-actions">
+          {% if p.connected %}
+            <form method="POST" action="{{ url_for('oauth.disconnect', platform=p.name) }}" style="display:inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+              <button type="submit" class="btn btn-sm btn-danger">Disconnect</button>
+            </form>
+          {% else %}
+            <a href="{{ url_for('oauth.connect', platform=p.name) }}" class="btn btn-sm btn-primary">Connect</a>
+          {% endif %}
+        </div>
+      </div>
+      {% if p.connected %}
+      <div class="conn-detail-row">
+        {% if p.account_name %}<span class="conn-account-name">{{ p.account_name }}</span>{% endif %}
+        {% if p.connected_at %}<span class="conn-since">Connected {{ p.connected_at[:10] }}</span>{% endif %}
+        {% if p.expires_at %}
+          <span class="conn-expiry {% if p.is_expired %}expired{% endif %}">
+            {% if p.is_expired %}Token expired {{ p.expires_at[:10] }}{% else %}Expires {{ p.expires_at[:10] }}{% endif %}
+          </span>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function saveConfig(platform, key, value, btn) {
+  value = (value || '').trim();
+  if (!value) {
+    showStatus(btn, 'error', 'Value cannot be empty');
+    return;
+  }
+  btn.disabled = true;
+  var origText = btn.textContent;
+  btn.textContent = 'Saving\u2026';
+  var body = {};
+  body[key] = value;
+  try {
+    var headers = {'Content-Type': 'application/json'};
+    // Add JWT token for mobile/Capacitor sessions
+    var token = localStorage.getItem('sp_auth_token');
+    if (token) { headers['Authorization'] = 'Bearer ' + token; }
+    var resp = await fetch((window.SOCIALPOSTER_API_BASE || '') + '/api/connection/' + platform + '/config', {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify(body),
+    });
+    var data = await resp.json();
+    if (data.ok) {
+      showStatus(btn, 'success', 'Saved');
+    } else {
+      showStatus(btn, 'error', data.error || 'Unknown error');
+    }
+  } catch (err) {
+    showStatus(btn, 'error', 'Network error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = origText;
+  }
+}
+
+function showStatus(anchor, type, msg) {
+  var el = anchor.parentElement.querySelector('.save-status');
+  if (!el) {
+    el = document.createElement('span');
+    el.className = 'save-status';
+    el.style.cssText = 'margin-left:0.5rem;font-size:0.8rem;transition:opacity 0.3s;';
+    anchor.parentElement.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.color = type === 'success' ? '#16a34a' : '#dc2626';
+  el.style.opacity = '1';
+  setTimeout(function() { el.style.opacity = '0'; }, 3000);
+}
+</script>
+{% endblock %}

@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+
+{% block title %}Competitors – SocialPoster{% endblock %}
+
+{% block topbar_nav %}
+<nav class="topbar-nav" id="topbar-nav">
+  <a href="{{ url_for('main.index') }}">Compose</a>
+  <a href="{{ url_for('analytics.dashboard') }}">Analytics</a>
+  <a href="{{ url_for('calendar_view.calendar_page') }}">Calendar</a>
+  <a href="{{ url_for('drafts.drafts_page') }}">Drafts</a>
+  <a href="{{ url_for('inbox.inbox_page') }}">Inbox</a>
+  <a href="{{ url_for('media.media_page') }}">Media</a>
+  <a href="{{ url_for('main.connections') }}">Connections</a>
+  <a href="{{ url_for('automation.automation_page') }}">Automation</a>
+  <a href="{{ url_for('webhooks.webhooks_page') }}">Webhooks</a>
+  <a href="{{ url_for('competitors.competitors_page') }}" class="active">Competitors</a>
+  {% if current_user.is_admin %}
+  <a href="{{ url_for('team.team_page') }}">Team</a>
+  <a href="{{ url_for('admin.settings') }}">Admin</a>
+  {% endif %}
+  <a href="{{ url_for('auth.logout') }}">Log out</a>
+</nav>
+{% endblock %}
+
+{% block bottom_bar %}
+<nav class="bottom-bar" id="bottom-bar">
+  <a href="{{ url_for('main.index') }}" class="bottom-bar-item">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h14M4 11h8M4 16h10"/></svg>
+    <span>Compose</span>
+  </a>
+  <a href="{{ url_for('analytics.dashboard') }}" class="bottom-bar-item">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 18V8M10 18V4M16 18v-6"/></svg>
+    <span>Analytics</span>
+  </a>
+  <a href="{{ url_for('competitors.competitors_page') }}" class="bottom-bar-item active">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+    <span>Competitors</span>
+  </a>
+  <a href="{{ url_for('inbox.inbox_page') }}" class="bottom-bar-item">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7l8 5 8-5M3 7v10h16V7"/></svg>
+    <span>Inbox</span>
+  </a>
+</nav>
+{% endblock %}
+
+{% block content %}
+<main class="automation-container">
+  <div class="automation-header">
+    <h1 class="analytics-page-title">Competitor Analysis</h1>
+    <button class="btn btn-primary btn-sm" id="btn-add-competitor">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 1v12M1 7h12"/></svg>
+      Track Competitor
+    </button>
+  </div>
+
+  <!-- Competitor List -->
+  <div class="card" style="margin-bottom:24px">
+    <h2 style="margin:0 0 12px;font-size:1.1rem">Tracked Competitors</h2>
+    <div id="competitors-list"></div>
+  </div>
+
+  <!-- AI Analysis -->
+  <div class="card" style="margin-bottom:24px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h2 style="margin:0;font-size:1.1rem">AI Analysis</h2>
+      <button class="btn btn-outline btn-sm" id="btn-run-analysis">Generate Analysis</button>
+    </div>
+    <div id="analysis-output" style="white-space:pre-wrap;font-size:.9rem;color:var(--text-secondary)">
+      Click "Generate Analysis" to get AI-powered competitor insights.
+    </div>
+  </div>
+
+  <!-- Engagement Comparison -->
+  <div class="card">
+    <h2 style="margin:0 0 12px;font-size:1.1rem">Engagement Comparison</h2>
+    <div id="comparison-data"></div>
+  </div>
+
+  <!-- Add Competitor Modal -->
+  <div class="modal-overlay" id="competitor-modal" style="display:none">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Track Competitor</h3>
+        <button class="btn btn-outline btn-sm" id="modal-close-competitor">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="comp-platform">Platform</label>
+          <select id="comp-platform">
+            <option value="twitter">X (Twitter)</option>
+            <option value="linkedin">LinkedIn</option>
+            <option value="facebook">Facebook</option>
+            <option value="instagram">Instagram</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="comp-handle">Handle / Username</label>
+          <input type="text" id="comp-handle" placeholder="e.g. @competitor" />
+        </div>
+        <div class="form-group">
+          <label for="comp-display">Display Name (optional)</label>
+          <input type="text" id="comp-display" placeholder="e.g. Competitor Inc." />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline btn-sm" id="btn-cancel-competitor">Cancel</button>
+        <button class="btn btn-primary btn-sm" id="btn-save-competitor">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Posts Modal -->
+  <div class="modal-overlay" id="posts-modal" style="display:none">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Competitor Posts</h3>
+        <button class="btn btn-outline btn-sm" id="posts-modal-close">&times;</button>
+      </div>
+      <div class="modal-body" id="posts-body"></div>
+    </div>
+  </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/competitors.js') }}"></script>
+{% endblock %}
