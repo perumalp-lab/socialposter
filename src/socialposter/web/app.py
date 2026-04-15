@@ -310,6 +310,13 @@ def offline():
     return render_template("offline.html")
 
 
+@main_bp.route("/sw.js")
+def service_worker():
+    """Serve the service worker with correct content-type."""
+    sw_path = static_dir / "sw.js"
+    return send_from_directory(str(static_dir), "sw.js", mimetype="application/javascript")
+
+
 # ---------------------------------------------------------------------------
 # App Factory
 # ---------------------------------------------------------------------------
@@ -348,12 +355,16 @@ def create_app(test_config: dict | None = None) -> Flask:
         app.config.update(test_config)
 
     # Initialize extensions
-    CORS(app, origins=[
+    cors_origins = [
         "http://localhost:*",
         "http://127.0.0.1:*",
         "capacitor://localhost",
         "http://localhost",
-    ])
+    ]
+    # Add production origins if available
+    if os.environ.get("RENDER_EXTERNAL_URL"):
+        cors_origins.append(os.environ.get("RENDER_EXTERNAL_URL"))
+    CORS(app, origins=cors_origins, supports_credentials=True)
 
     csrf = CSRFProtect(app)
 

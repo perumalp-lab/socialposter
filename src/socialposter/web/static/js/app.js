@@ -5,7 +5,7 @@
 // ─── Service Worker Registration ───
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", function () {
-    navigator.serviceWorker.register("/static/sw.js").then(function (reg) {
+    navigator.serviceWorker.register("/sw.js").then(function (reg) {
       console.log("[SocialPoster] SW registered, scope:", reg.scope);
     }).catch(function (err) {
       console.warn("[SocialPoster] SW registration failed:", err);

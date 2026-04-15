@@ -10,11 +10,22 @@ var STATIC_ASSETS = [
   '/offline.html'
 ];
 
-// Install – pre-cache static assets
+// Install – pre-cache static assets (skip failures)
 self.addEventListener('install', function(event) {
   event.waitUntil(
     caches.open(CACHE_NAME).then(function(cache) {
-      return cache.addAll(STATIC_ASSETS);
+      // Try to cache each asset individually, skip failures
+      return Promise.all(
+        STATIC_ASSETS.map(function(url) {
+          return fetch(url).then(function(response) {
+            if (response.ok) {
+              return cache.put(url, response);
+            }
+          }).catch(function() {
+            // Silently skip failed assets
+          });
+        })
+      );
     })
   );
   self.skipWaiting();
@@ -45,13 +56,16 @@ self.addEventListener('fetch', function(event) {
     event.respondWith(
       caches.match(event.request).then(function(cached) {
         return cached || fetch(event.request).then(function(response) {
-          if (response.ok) {
+          if (response && response.ok) {
             var clone = response.clone();
             caches.open(CACHE_NAME).then(function(cache) {
               cache.put(event.request, clone);
             });
           }
           return response;
+        }).catch(function() {
+          // Return a cached response if available, otherwise return a blank response
+          return cached || new Response('', { status: 404 });
         });
       })
     );
@@ -61,17 +75,43 @@ self.addEventListener('fetch', function(event) {
   // Network-first for navigation (HTML pages)
   if (event.request.mode === 'navigate') {
     event.respondWith(
-      fetch(event.request).catch(function() {
-        return caches.match('/offline.html');
-      })
+      fetch(event.request)
+        .then(function(response) {
+          // Cache successful responses
+          if (response && response.ok) {
+            var clone = response.clone();
+            caches.open(CACHE_NAME).then(function(cache) {
+              cache.put(event.request, clone);
+            });
+          }
+          return response;
+        })
+        .catch(function() {
+          // When offline, try to return cached version
+          return caches.match(event.request).then(function(cached) {
+            return cached || fetch('/offline.html').catch(function() {
+              return new Response('Offline', { status: 503 });
+            });
+          });
+        })
     );
     return;
   }
 
   // Default: network with cache fallback
   event.respondWith(
-    fetch(event.request).catch(function() {
-      return caches.match(event.request);
-    })
+    fetch(event.request)
+      .then(function(response) {
+        if (response && response.ok && event.request.method === 'GET') {
+          var clone = response.clone();
+          caches.open(CACHE_NAME).then(function(cache) {
+            cache.put(event.request, clone);
+          });
+        }
+        return response;
+      })
+      .catch(function() {
+        return caches.match(event.request) || new Response('', { status: 404 });
+      })
   );
 });
