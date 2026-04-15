@@ -343,12 +343,17 @@ def create_app(test_config: dict | None = None) -> Flask:
     # Database configuration
     database_url = os.environ.get("DATABASE_URL")
     if database_url:
+        # Fix postgres:// to postgresql:// for newer SQLAlchemy versions
+        if database_url.startswith("postgres://"):
+            database_url = database_url.replace("postgres://", "postgresql://", 1)
         app.config["SQLALCHEMY_DATABASE_URI"] = database_url
+        logging.info("Using DATABASE_URL from environment")
     else:
         # SQLite database in the config dir
         db_path = DATA_DIR / "socialposter.db"
         db_path.parent.mkdir(parents=True, exist_ok=True)
         app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{db_path}"
+        logging.info("Using SQLite database at %s", db_path)
 
     # Apply test overrides early so they affect DB init
     if test_config:
@@ -433,13 +438,19 @@ def create_app(test_config: dict | None = None) -> Flask:
     # Create tables
     with app.app_context():
         try:
+            logging.info("Creating database tables...")
             db.create_all()
+            logging.info("Database tables created successfully")
         except sqlalchemy.exc.OperationalError as exc:
             message = str(exc).lower()
             if "already exists" in message or "table users already exists" in message:
                 logging.warning("Database table already exists during startup; continuing.")
             else:
+                logging.error("Failed to create database tables: %s", exc)
                 raise
+        except Exception as exc:
+            logging.error("Unexpected error during database initialization: %s", exc)
+            raise
 
         # Auto-migration: add missing columns to existing tables
         with db.engine.connect() as conn:
@@ -475,8 +486,16 @@ def create_app(test_config: dict | None = None) -> Flask:
 
     # Start background scheduler (avoid double-start in Flask reloader)
     if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
-        from socialposter.core.scheduler import init_scheduler
-        init_scheduler(app)
+        try:
+            from socialposter.core.scheduler import init_scheduler
+            logging.info("Starting background scheduler...")
+            init_scheduler(app)
+            logging.info("Background scheduler started successfully")
+        except Exception as exc:
+            logging.error("Failed to start background scheduler: %s", exc)
+            # Don't crash the app if scheduler fails, just warn
+            if app.debug:
+                raise
 
     return app
 
