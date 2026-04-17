@@ -21,7 +21,8 @@ def login():
 
         user = User.query.filter_by(email=email).first()
         if user and user.check_password(password):
-            login_user(user)
+            remember = request.form.get("remember", False)
+            login_user(user, remember=remember)
             next_page = request.args.get("next")
             return redirect(next_page or url_for("main.index"))
 

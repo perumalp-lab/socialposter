@@ -339,6 +339,12 @@ def create_app(test_config: dict | None = None) -> Flask:
     app.config["SECRET_KEY"] = os.environ.get(
         "SOCIALPOSTER_SECRET_KEY", "dev-secret-change-me-in-production"
     )
+    
+    # Session configuration
+    app.config["SESSION_COOKIE_SECURE"] = os.environ.get("FLASK_ENV") == "production"
+    app.config["SESSION_COOKIE_HTTPONLY"] = True
+    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    app.config["PERMANENT_SESSION_LIFETIME"] = 2592000  # 30 days
 
     # Database configuration
     database_url = os.environ.get("DATABASE_URL")
@@ -354,6 +360,8 @@ def create_app(test_config: dict | None = None) -> Flask:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{db_path}"
         logging.info("Using SQLite database at %s", db_path)
+    
+    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
     # Apply test overrides early so they affect DB init
     if test_config:
