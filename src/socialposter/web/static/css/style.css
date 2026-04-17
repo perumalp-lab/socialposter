@@ -946,6 +946,9 @@ body {
     padding: 8px;
     gap: 2px;
     z-index: 99;
+    max-height: calc(100vh - 60px - 80px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
   .topbar-nav.open { display: flex; }
   .topbar-nav a {
