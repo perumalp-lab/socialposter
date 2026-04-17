@@ -41,4 +41,12 @@ dev = ["pytest>=7.0", "pytest-mock>=3.0"]
 socialposter = "socialposter.cli:main"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
+
+[tool.setuptools.package-data]
+"socialposter" = [
+    "web/templates/**/*",
+    "web/static/**/*",
+    "templates/**/*",
+    "static/**/*",
+]
