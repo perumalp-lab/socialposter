@@ -71,10 +71,23 @@ class User(UserMixin, db.Model):
     )
 
     def set_password(self, password: str) -> None:
-        self.password_hash = generate_password_hash(password)
+        hash_value = generate_password_hash(password)
+        import logging
+        log = logging.getLogger("socialposter")
+        log.info("Generating password hash: length=%d, method=%s", len(hash_value), hash_value[:30] if len(hash_value) > 30 else hash_value)
+        self.password_hash = hash_value
+        log.info("Password hash set: stored_length=%d", len(self.password_hash) if self.password_hash else 0)
 
     def check_password(self, password: str) -> bool:
-        return check_password_hash(self.password_hash, password)
+        import logging
+        log = logging.getLogger("socialposter")
+        if not self.password_hash:
+            log.warning("No password hash stored")
+            return False
+        log.info("Checking password: hash_length=%d, method=%s", len(self.password_hash), self.password_hash[:30] if len(self.password_hash) > 30 else self.password_hash)
+        result = check_password_hash(self.password_hash, password)
+        log.info("Password check result: %s", result)
+        return result
 
     def get_connection(self, platform: str) -> Optional["PlatformConnection"]:
         return PlatformConnection.query.filter_by(

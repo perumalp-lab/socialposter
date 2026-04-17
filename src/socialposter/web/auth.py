@@ -59,8 +59,6 @@ def login():
     
     return render_template("login.html")
 
-    return render_template("login.html")
-
 
 @auth_bp.route("/signup", methods=["GET", "POST"])
 def signup():
@@ -116,9 +114,11 @@ def signup():
 
                 db.session.commit()
                 log.info("User registration completed and committed to database: %s", email)
+                log.info("Password hash after commit: length=%d", len(user.password_hash) if user.password_hash else 0)
                 
                 # Refresh user from database to ensure it's in current session
                 db.session.refresh(user)
+                log.info("User refreshed from database: email=%s, pwd_hash_len=%d", email, len(user.password_hash) if user.password_hash else 0)
                 login_user(user)
                 if is_first:
                     flash("Welcome! You are the admin. Configure OAuth settings under Admin.", "success")
