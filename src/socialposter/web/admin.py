@@ -145,3 +145,37 @@ def _mask(value: str) -> str:
     if len(value) <= 6:
         return "*" * len(value)
     return value[:3] + "*" * (len(value) - 6) + value[-3:]
+
+
+@admin_bp.route("/debug/database", methods=["GET"])
+def debug_database():
+    """Debug route to show database schema information."""
+    import sqlalchemy
+    from sqlalchemy import inspect
+    
+    info = {
+        "database_url": str(db.engine.url).split("@")[0] + "@***",  # Hide credentials
+        "dialect": db.engine.dialect.name,
+    }
+    
+    # Get table and column information
+    inspector = inspect(db.engine)
+    info["tables"] = {}
+    
+    for table_name in inspector.get_table_names():
+        columns = inspector.get_columns(table_name)
+        info["tables"][table_name] = {}
+        
+        for col in columns:
+            col_type = str(col["type"])
+            col_length = getattr(col["type"], "length", None)
+            info["tables"][table_name][col["name"]] = {
+                "type": col_type,
+                "length": col_length,
+                "nullable": col.get("nullable", True),
+            }
+    
+    return jsonify({
+        "database": info,
+        "warning": "This is debug information. Ensure this is only accessible to admins."
+    })
