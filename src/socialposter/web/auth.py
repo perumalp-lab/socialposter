@@ -145,3 +145,34 @@ def signup():
 def logout():
     logout_user()
     return redirect(url_for("auth.login"))
+
+
+@auth_bp.route("/debug/users", methods=["GET"])
+def debug_users():
+    """Debug endpoint to verify users are stored in database."""
+    from flask import jsonify
+    
+    try:
+        users = User.query.all()
+        user_list = []
+        for user in users:
+            user_list.append({
+                "id": user.id,
+                "email": user.email,
+                "display_name": user.display_name,
+                "is_admin": user.is_admin,
+                "password_hash_length": len(user.password_hash) if user.password_hash else 0,
+                "has_password_hash": bool(user.password_hash),
+                "created_at": str(user.created_at) if hasattr(user, 'created_at') else "N/A",
+            })
+        
+        return jsonify({
+            "total_users": len(user_list),
+            "users": user_list,
+            "database": str(db.engine.url).split("@")[0] + "@***",
+        })
+    except Exception as e:
+        return jsonify({
+            "error": str(e),
+            "message": "Failed to query users"
+        }), 500
