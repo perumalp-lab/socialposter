@@ -529,29 +529,41 @@ def create_app(test_config: dict | None = None) -> Flask:
                         col_length = password_col.get("type").length if hasattr(password_col.get("type"), "length") else None
                         logging.info("password_hash column: type=%s, length=%s", col_type_str, col_length)
                         
-                        # Check if it's VARCHAR with small size that needs expansion
+                        # Check if it needs expansion
                         needs_expansion = False
                         if "varchar" in col_type_str:
                             if col_length and col_length < 500:
                                 needs_expansion = True
-                            elif any(x in col_type_str for x in ["255", "100", "200"]):
-                                needs_expansion = True
+                                logging.warning("password_hash column is VARCHAR(%d), needs expansion to VARCHAR(500)", col_length)
+                            elif col_length is None:
+                                # If length is None, it might be VARCHAR without explicit length
+                                if "varchar" in col_type_str and "500" not in col_type_str:
+                                    needs_expansion = True
+                                    logging.warning("password_hash column appears to be small VARCHAR, expanding to 500")
                         
                         if needs_expansion:
                             db_name = db.engine.dialect.name
                             if db_name == "postgresql":
-                                logging.info("Expanding password_hash column to VARCHAR(500)")
-                                conn.execute(sqlalchemy.text(
-                                    "ALTER TABLE users ALTER COLUMN password_hash TYPE VARCHAR(500)"
-                                ))
-                                conn.commit()
-                                logging.info("Successfully expanded password_hash column to VARCHAR(500)")
+                                logging.warning("CRITICAL: Expanding password_hash column from %s to VARCHAR(500)", col_type_str)
+                                try:
+                                    # Drop any constraints first if needed
+                                    conn.execute(sqlalchemy.text(
+                                        "ALTER TABLE users ALTER COLUMN password_hash TYPE VARCHAR(500)"
+                                    ))
+                                    conn.commit()
+                                    logging.info("✓ Successfully expanded password_hash column to VARCHAR(500)")
+                                except Exception as e:
+                                    logging.error("Failed to expand column: %s", e)
+                                    conn.rollback()
                             elif db_name == "sqlite":
-                                logging.info("SQLite: skipping ALTER COLUMN (not supported)")
+                                logging.warning("SQLite: Cannot alter VARCHAR size, using SQLite approach")
+                                # For SQLite, we'd need to recreate the table, so we just log it
+                            else:
+                                logging.warning("Unknown database: %s, cannot auto-migrate", db_name)
                         else:
-                            logging.info("password_hash column is already adequate size")
+                            logging.info("✓ password_hash column is adequate size: %s(%s)", col_type_str, col_length)
                 except Exception as e:
-                    logging.warning("Could not auto-migrate password_hash column: %s", e)
+                    logging.error("Error during password_hash migration: %s", e)
 
         # Auto-migration: ensure admin users have a default team
         from socialposter.web.models import Team, TeamMember
