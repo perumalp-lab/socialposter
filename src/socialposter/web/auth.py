@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 
 from socialposter.web.models import User, Team, TeamMember, db
+
+log = logging.getLogger("socialposter")
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -19,14 +22,42 @@ def login():
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
 
+        log.info("Login attempt for email: %s", email)
+        
+        # Ensure fresh database session
+        db.session.expunge_all()
         user = User.query.filter_by(email=email).first()
-        if user and user.check_password(password):
-            remember = request.form.get("remember", False)
-            login_user(user, remember=remember)
-            next_page = request.args.get("next")
-            return redirect(next_page or url_for("main.index"))
-
-        flash("Invalid email or password.", "error")
+        
+        if not user:
+            log.warning("User not found: %s", email)
+            flash("Invalid email or password.", "error")
+            return render_template("login.html")
+        
+        log.info("User found: %s (id=%s, has_password_hash=%s)", email, user.id, bool(user.password_hash))
+        
+        # Debug password verification
+        try:
+            is_correct = user.check_password(password)
+            log.info("Password verification result: %s (hash_length=%d)", is_correct, len(user.password_hash) if user.password_hash else 0)
+        except Exception as e:
+            log.error("Error during password check: %s", e)
+            flash("An error occurred during login. Please try again.", "error")
+            return render_template("login.html")
+        
+        if not is_correct:
+            log.warning("Incorrect password for user: %s", email)
+            flash("Invalid email or password.", "error")
+            return render_template("login.html")
+        
+        log.info("User authenticated successfully: %s (id=%s)", email, user.id)
+        remember = request.form.get("remember", False)
+        login_user(user, remember=remember)
+        log.info("User logged in: %s", email)
+        
+        next_page = request.args.get("next")
+        return redirect(next_page or url_for("main.index"))
+    
+    return render_template("login.html")
 
     return render_template("login.html")
 
@@ -52,41 +83,52 @@ def signup():
         elif User.query.filter_by(email=email).first():
             flash("An account with that email already exists.", "error")
         else:
-            # First user is auto-admin
-            is_first = User.query.count() == 0
+            try:
+                # First user is auto-admin
+                is_first = User.query.count() == 0
 
-            user = User(
-                email=email,
-                display_name=display_name or email.split("@")[0],
-                is_admin=is_first,
-                timezone=tz or "UTC",
-            )
-            user.set_password(password)
-            db.session.add(user)
-            db.session.flush()  # Get user.id before creating team
-
-            # Auto-create a default team for the first (admin) user
-            if is_first:
-                team = Team(
-                    name="Default Team",
-                    slug="default-team",
-                    created_by=user.id,
+                user = User(
+                    email=email,
+                    display_name=display_name or email.split("@")[0],
+                    is_admin=is_first,
+                    timezone=tz or "UTC",
                 )
-                db.session.add(team)
-                db.session.flush()
-                db.session.add(TeamMember(
-                    team_id=team.id,
-                    user_id=user.id,
-                    role="admin",
-                ))
+                user.set_password(password)
+                db.session.add(user)
+                db.session.flush()  # Get user.id before creating team
+                log.info("User created: %s (id=%s, is_admin=%s)", email, user.id, is_first)
 
-            db.session.commit()
+                # Auto-create a default team for the first (admin) user
+                if is_first:
+                    team = Team(
+                        name="Default Team",
+                        slug="default-team",
+                        created_by=user.id,
+                    )
+                    db.session.add(team)
+                    db.session.flush()
+                    db.session.add(TeamMember(
+                        team_id=team.id,
+                        user_id=user.id,
+                        role="admin",
+                    ))
+                    log.info("Default team created for admin user: %s", email)
 
-            login_user(user)
-            if is_first:
-                flash("Welcome! You are the admin. Configure OAuth settings under Admin.", "success")
-                return redirect(url_for("admin.settings"))
-            return redirect(url_for("main.index"))
+                db.session.commit()
+                log.info("User registration completed and committed to database: %s", email)
+                
+                # Refresh user from database to ensure it's in current session
+                db.session.refresh(user)
+                login_user(user)
+                if is_first:
+                    flash("Welcome! You are the admin. Configure OAuth settings under Admin.", "success")
+                    return redirect(url_for("admin.settings"))
+                flash("Account created successfully! You are now logged in.", "success")
+                return redirect(url_for("main.index"))
+            except Exception as e:
+                db.session.rollback()
+                log.exception("Error during user registration: %s", e)
+                flash("An error occurred during registration. Please try again.", "error")
 
     return render_template("signup.html")
 

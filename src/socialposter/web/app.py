@@ -471,6 +471,26 @@ def create_app(test_config: dict | None = None) -> Flask:
                         "ALTER TABLE users ADD COLUMN timezone VARCHAR(50) NOT NULL DEFAULT 'UTC'"
                     ))
                     conn.commit()
+                
+                # Auto-migration: expand password_hash column if needed (for longer hashes)
+                try:
+                    password_col = next((c for c in inspector.get_columns("users") if c["name"] == "password_hash"), None)
+                    if password_col and password_col.get("type"):
+                        col_type_str = str(password_col["type"]).lower()
+                        # Check if it's VARCHAR(255) or similar small size
+                        if "varchar" in col_type_str and ("255" in col_type_str or "100" in col_type_str or "200" in col_type_str):
+                            db_name = db.engine.dialect.name
+                            if db_name == "postgresql":
+                                conn.execute(sqlalchemy.text(
+                                    "ALTER TABLE users ALTER COLUMN password_hash TYPE VARCHAR(500)"
+                                ))
+                            elif db_name == "sqlite":
+                                # SQLite doesn't support ALTER COLUMN, skip
+                                pass
+                            conn.commit()
+                            logging.info("Expanded password_hash column to VARCHAR(500)")
+                except Exception as e:
+                    logging.warning("Could not auto-migrate password_hash column: %s", e)
 
         # Auto-migration: ensure admin users have a default team
         from socialposter.web.models import Team, TeamMember
