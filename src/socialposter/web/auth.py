@@ -50,9 +50,12 @@ def login():
             return render_template("login.html")
         
         log.info("User authenticated successfully: %s (id=%s)", email, user.id)
-        remember = request.form.get("remember", False)
-        login_user(user, remember=remember)
-        log.info("User logged in: %s", email)
+        remember = bool(request.form.get("remember"))
+        log.info("Login: remember_me=%s", remember)
+        login_user(user, remember=remember, duration=None)  # duration=None uses PERMANENT_SESSION_LIFETIME
+        from flask import session
+        session.permanent = True  # Make session persistent
+        log.info("User logged in with persistent session: %s", email)
         
         next_page = request.args.get("next")
         return redirect(next_page or url_for("main.index"))
@@ -119,7 +122,12 @@ def signup():
                 # Refresh user from database to ensure it's in current session
                 db.session.refresh(user)
                 log.info("User refreshed from database: email=%s, pwd_hash_len=%d", email, len(user.password_hash) if user.password_hash else 0)
-                login_user(user)
+                
+                # Make session persistent
+                from flask import session
+                session.permanent = True
+                login_user(user, remember=True)
+                log.info("User logged in after signup with persistent session: %s", email)
                 if is_first:
                     flash("Welcome! You are the admin. Configure OAuth settings under Admin.", "success")
                     return redirect(url_for("admin.settings"))

@@ -343,8 +343,20 @@ def create_app(test_config: dict | None = None) -> Flask:
     # Session configuration
     app.config["SESSION_COOKIE_SECURE"] = os.environ.get("FLASK_ENV") == "production"
     app.config["SESSION_COOKIE_HTTPONLY"] = True
-    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    
+    # For production, use Lax for better security; for development use None to allow cross-origin
+    if os.environ.get("FLASK_ENV") == "production":
+        app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+        # Set cookie domain to allow access across systems
+        if os.environ.get("RENDER_EXTERNAL_URL"):
+            domain = os.environ.get("RENDER_EXTERNAL_URL").replace("https://", "").replace("http://", "")
+            app.config["SESSION_COOKIE_DOMAIN"] = domain
+            logging.info("Session cookie domain: %s", domain)
+    else:
+        app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    
     app.config["PERMANENT_SESSION_LIFETIME"] = 2592000  # 30 days
+    app.config["SESSION_REFRESH_EACH_REQUEST"] = True
 
     # Database configuration
     database_url = os.environ.get("DATABASE_URL")
@@ -373,16 +385,31 @@ def create_app(test_config: dict | None = None) -> Flask:
         logging.info("Production mode: HTTPS enforcement enabled")
 
     # Initialize extensions
+    # CORS: Allow the app to work from any system/device accessing the production URL
     cors_origins = [
         "http://localhost:*",
         "http://127.0.0.1:*",
         "capacitor://localhost",
         "http://localhost",
     ]
-    # Add production origins if available
+    # Add production origins if available - allow both HTTP and HTTPS
     if os.environ.get("RENDER_EXTERNAL_URL"):
-        cors_origins.append(os.environ.get("RENDER_EXTERNAL_URL"))
-    CORS(app, origins=cors_origins, supports_credentials=True)
+        render_url = os.environ.get("RENDER_EXTERNAL_URL")
+        cors_origins.append(render_url)
+        cors_origins.append(render_url.replace("https://", "http://"))
+        logging.info("Added production CORS origins: %s", render_url)
+    
+    # For production, use more permissive CORS (all HTTPS origins)
+    if os.environ.get("FLASK_ENV") == "production":
+        CORS(app, 
+             origins=cors_origins,
+             supports_credentials=True,
+             allow_headers=["Content-Type", "Authorization"],
+             methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+             max_age=3600)
+        logging.info("CORS configured for production with credentials support")
+    else:
+        CORS(app, origins=cors_origins, supports_credentials=True)
 
     csrf = CSRFProtect(app)
 
