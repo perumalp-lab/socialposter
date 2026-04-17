@@ -366,6 +366,11 @@ def create_app(test_config: dict | None = None) -> Flask:
     # Apply test overrides early so they affect DB init
     if test_config:
         app.config.update(test_config)
+    
+    # HTTPS enforcement in production
+    if os.environ.get("FLASK_ENV") == "production":
+        app.config["SESSION_COOKIE_SECURE"] = True
+        logging.info("Production mode: HTTPS enforcement enabled")
 
     # Initialize extensions
     cors_origins = [
@@ -438,6 +443,23 @@ def create_app(test_config: dict | None = None) -> Flask:
                calendar_bp, team_bp, draft_bp, inbox_bp, media_bp,
                automation_bp, user_ai_bp, webhook_bp, competitor_bp):
         csrf.exempt(bp)
+
+    # Add security headers
+    @app.after_request
+    def add_security_headers(response):
+        # HTTPS enforcement
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        # Prevent clickjacking
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        # Prevent MIME type sniffing
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        # Enable XSS protection
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        # Content Security Policy
+        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline' fonts.googleapis.com; style-src 'self' 'unsafe-inline' fonts.googleapis.com; font-src fonts.gstatic.com; connect-src 'self'"
+        # Referrer policy
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
 
     @app.errorhandler(500)
     def internal_error(error):

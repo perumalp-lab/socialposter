@@ -11,6 +11,8 @@ services:
         generateValue: true
       - key: FLASK_APP
         value: socialposter.web.app:create_app
+      - key: FLASK_ENV
+        value: production
       - key: PYTHON_VERSION
         value: "3.12"
 databases:
