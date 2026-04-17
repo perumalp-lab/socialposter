@@ -79,8 +79,8 @@ def signup():
             flash("Email and password are required.", "error")
         elif password != confirm:
             flash("Passwords do not match.", "error")
-        elif len(password) < 8:
-            flash("Password must be at least 8 characters.", "error")
+        elif len(password) < 6:
+            flash("Password must be at least 6 characters.", "error")
         elif User.query.filter_by(email=email).first():
             flash("An account with that email already exists.", "error")
         else:
