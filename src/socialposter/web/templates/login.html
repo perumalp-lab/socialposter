@@ -35,4 +35,23 @@
     </p>
   </div>
 </main>
+
+<script>
+  // Preserve email field on page load (for when login fails and page reloads)
+  document.addEventListener('DOMContentLoaded', function() {
+    var emailInput = document.getElementById('email');
+    var savedEmail = localStorage.getItem('sp_login_email');
+    if (savedEmail && emailInput) {
+      emailInput.value = savedEmail;
+    }
+    
+    // Save email when form is submitted
+    var form = document.querySelector('form');
+    if (form && emailInput) {
+      form.addEventListener('submit', function() {
+        localStorage.setItem('sp_login_email', emailInput.value);
+      });
+    }
+  });
+</script>
 {% endblock %}

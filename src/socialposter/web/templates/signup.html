@@ -25,7 +25,7 @@
       </div>
       <div class="form-group">
         <label for="password">Password</label>
-        <input type="password" id="password" name="password" required minlength="8" placeholder="At least 8 characters" />
+        <input type="password" id="password" name="password" required minlength="6" placeholder="At least 6 characters" />
       </div>
       <div class="form-group">
         <label for="confirm_password">Confirm Password</label>
@@ -45,10 +45,31 @@
     </p>
   </div>
 </main>
-{% endblock %}
 
-{% block scripts %}
 <script>
+// Preserve form fields on signup page (for when validation fails and page reloads)
+document.addEventListener('DOMContentLoaded', function() {
+  var emailInput = document.getElementById('email');
+  var displayNameInput = document.getElementById('display_name');
+  
+  // Load saved values from localStorage
+  var savedEmail = localStorage.getItem('sp_signup_email');
+  var savedName = localStorage.getItem('sp_signup_name');
+  
+  if (savedEmail && emailInput) emailInput.value = savedEmail;
+  if (savedName && displayNameInput) displayNameInput.value = savedName;
+  
+  // Save values when form is submitted
+  var form = document.querySelector('form');
+  if (form) {
+    form.addEventListener('submit', function() {
+      if (emailInput) localStorage.setItem('sp_signup_email', emailInput.value);
+      if (displayNameInput) localStorage.setItem('sp_signup_name', displayNameInput.value);
+    });
+  }
+});
+
+// Timezone detection (existing code)
 (function() {
   var sel = document.getElementById('timezone');
   var detected = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
