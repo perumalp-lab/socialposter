@@ -1,4 +1,4 @@
-/* SocialPoster Service Worker */
+/* KRYPTAMS Service Worker */
 
 var CACHE_NAME = 'socialposter-v1';
 var STATIC_ASSETS = [

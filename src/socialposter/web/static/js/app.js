@@ -1,14 +1,14 @@
 /* ===================================================================
-   SocialPoster – Web UI JavaScript
+   KRYPTAMS – Web UI JavaScript
    =================================================================== */
 
 // ─── Service Worker Registration ───
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", function () {
     navigator.serviceWorker.register("/sw.js").then(function (reg) {
-      console.log("[SocialPoster] SW registered, scope:", reg.scope);
+      console.log("[KRYPTAMS] SW registered, scope:", reg.scope);
     }).catch(function (err) {
-      console.warn("[SocialPoster] SW registration failed:", err);
+      console.warn("[KRYPTAMS] SW registration failed:", err);
     });
   });
 }
@@ -105,13 +105,13 @@ function apiFetch(path, options) {
   // ─── Init ───
   async function init() {
     cacheDom();
-    console.log("[SocialPoster] DOM cached, loading platforms...");
+    console.log("[KRYPTAMS] DOM cached, loading platforms...");
     await loadPlatforms();
     bindEvents();
     initAI();
     loadAIModels();
     initAISlider();
-    console.log("[SocialPoster] Ready.");
+    console.log("[KRYPTAMS] Ready.");
   }
 
   async function loadAIModels() {
