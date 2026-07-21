@@ -657,9 +657,12 @@ def create_app(test_config: dict | None = None) -> Flask:
     def _handle_plan_limit(exc: PlanLimitExceeded):
         return jsonify(exc.to_dict()), 402
 
-    # Create tables
+    # Create tables (idempotent — safe when multiple workers boot concurrently)
     with app.app_context():
-        db.create_all()
+        try:
+            db.create_all()
+        except Exception as exc:
+            app.logger.warning("db.create_all() skipped: %s", exc)
 
         # Auto-migration: add missing columns to existing tables
         import sqlalchemy
