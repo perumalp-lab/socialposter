@@ -14,8 +14,10 @@ services:
     # Single worker: APScheduler runs in-process, so multiple workers would
     # fire each scheduled post once per worker. Stick with 1 until the
     # scheduler moves to a separate dyno or uses a DB-backed lock.
-    startCommand: gunicorn "socialposter.web.app:create_app()" --bind 0.0.0.0:$PORT --workers 1
+    startCommand: gunicorn "socialposter.web.app:create_app()" --bind 0.0.0.0:$PORT
     envVars:
+      - key: WEB_CONCURRENCY
+        value: "1"
       - key: SOCIALPOSTER_SECRET_KEY
         generateValue: true
       - key: SOCIALPOSTER_ENCRYPTION_KEY

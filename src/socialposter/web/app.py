@@ -565,10 +565,12 @@ def create_app(test_config: dict | None = None) -> Flask:
         if db_url.startswith("postgres://"):
             db_url = "postgresql://" + db_url[len("postgres://"):]
         app.config["SQLALCHEMY_DATABASE_URI"] = db_url
+        print(f"[socialposter] Using DATABASE_URL: {db_url[:30]}...")
     else:
         db_path = Path.home() / ".socialposter" / "socialposter.db"
         db_path.parent.mkdir(parents=True, exist_ok=True)
         app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{db_path}"
+        print(f"[socialposter] No DATABASE_URL set, using SQLite: {db_path}")
 
     # Apply test overrides early so they affect DB init
     if test_config:
