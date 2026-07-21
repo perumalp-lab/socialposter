@@ -14,23 +14,44 @@ from socialposter.web.permissions import team_required, role_required
 team_bp = Blueprint("team", __name__)
 
 
-@team_bp.route("/team")
+# /team Jinja page removed — React SPA owns it.
+
+
+@team_bp.route("/api/team", methods=["GET"])
 @login_required
-def team_page():
+def api_team_get():
+    """Return the current user's team plus members."""
     membership = TeamMember.query.filter_by(user_id=current_user.id).first()
     if not membership:
-        return render_template("team.html", team=None, members=[], role=None)
+        return jsonify({"team": None, "members": [], "role": None})
+
     team = membership.team
     members = TeamMember.query.filter_by(team_id=team.id).all()
-    return render_template(
-        "team.html",
-        team=team,
-        members=members,
-        role=membership.role,
-    )
+    return jsonify({
+        "team": {
+            "id": team.id,
+            "name": team.name,
+            "slug": team.slug,
+            "created_at": team.created_at.isoformat() if team.created_at else None,
+        },
+        "role": membership.role,
+        "members": [
+            {
+                "id": m.id,
+                "user_id": m.user_id,
+                "email": m.user.email if m.user else "",
+                "display_name": m.user.display_name if m.user else "",
+                "is_admin": bool(getattr(m.user, "is_admin", False)) if m.user else False,
+                "role": m.role,
+                "joined_at": m.joined_at.isoformat() if m.joined_at else None,
+            }
+            for m in members
+        ],
+    })
 
 
 @team_bp.route("/team/create", methods=["POST"])
+@team_bp.route("/api/team", methods=["POST"])
 @login_required
 def create_team():
     data = request.get_json(silent=True) or {}
@@ -54,6 +75,7 @@ def create_team():
 
 
 @team_bp.route("/team/invite", methods=["POST"])
+@team_bp.route("/api/team/invite", methods=["POST"])
 @login_required
 @team_required
 @role_required("admin")
@@ -80,6 +102,7 @@ def invite_user():
 
 
 @team_bp.route("/team/members/<int:member_id>/role", methods=["POST"])
+@team_bp.route("/api/team/members/<int:member_id>/role", methods=["POST"])
 @login_required
 @team_required
 @role_required("admin")
@@ -99,6 +122,7 @@ def change_role(member_id: int):
 
 
 @team_bp.route("/team/members/<int:user_id>/site-admin", methods=["POST"])
+@team_bp.route("/api/team/members/<int:user_id>/site-admin", methods=["POST"])
 @login_required
 @team_required
 @role_required("admin")
@@ -120,6 +144,7 @@ def toggle_site_admin(user_id: int):
 
 
 @team_bp.route("/team/members/<int:member_id>/remove", methods=["POST"])
+@team_bp.route("/api/team/members/<int:member_id>/remove", methods=["POST"])
 @login_required
 @team_required
 @role_required("admin")

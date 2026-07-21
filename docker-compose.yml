@@ -2,8 +2,41 @@ services:
   web:
     build: .
     env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
     volumes:
       - socialposter_data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build: .
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      SOCIALPOSTER_SKIP_SCHEDULER: "1"
+    command: ["python", "-m", "socialposter.worker"]
+    volumes:
+      - socialposter_data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      web:
+        condition: service_started
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
 
   caddy:
@@ -23,3 +56,4 @@ volumes:
   socialposter_data:
   caddy_data:
   caddy_config:
+  redis_data:

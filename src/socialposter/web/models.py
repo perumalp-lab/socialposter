@@ -56,7 +56,7 @@ class User(UserMixin, db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(255), unique=True, nullable=False, index=True)
-    password_hash = db.Column(db.String(500), nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
     display_name = db.Column(db.String(100), nullable=False, default="")
     is_admin = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(
@@ -71,23 +71,10 @@ class User(UserMixin, db.Model):
     )
 
     def set_password(self, password: str) -> None:
-        hash_value = generate_password_hash(password)
-        import logging
-        log = logging.getLogger("socialposter")
-        log.info("Generating password hash: length=%d, method=%s", len(hash_value), hash_value[:30] if len(hash_value) > 30 else hash_value)
-        self.password_hash = hash_value
-        log.info("Password hash set: stored_length=%d", len(self.password_hash) if self.password_hash else 0)
+        self.password_hash = generate_password_hash(password)
 
     def check_password(self, password: str) -> bool:
-        import logging
-        log = logging.getLogger("socialposter")
-        if not self.password_hash:
-            log.warning("No password hash stored")
-            return False
-        log.info("Checking password: hash_length=%d, method=%s", len(self.password_hash), self.password_hash[:30] if len(self.password_hash) > 30 else self.password_hash)
-        result = check_password_hash(self.password_hash, password)
-        log.info("Password check result: %s", result)
-        return result
+        return check_password_hash(self.password_hash, password)
 
     def get_connection(self, platform: str) -> Optional["PlatformConnection"]:
         return PlatformConnection.query.filter_by(
@@ -96,6 +83,14 @@ class User(UserMixin, db.Model):
 
     def is_connected(self, platform: str) -> bool:
         return self.get_connection(platform) is not None
+
+    @property
+    def plan(self) -> str:
+        """Return the user's plan tier: free, essentials, or team."""
+        sub = Subscription.query.filter_by(user_id=self.id).first()
+        if not sub:
+            return "free"
+        return sub.effective_tier
 
     def get_team_role(self, team_id: int) -> Optional[str]:
         """Return the user's role in the given team, or None if not a member."""
@@ -358,6 +353,54 @@ class AppSetting(db.Model):
 
 
 # ---------------------------------------------------------------------------
+# Subscription – per-user Stripe subscription state
+# ---------------------------------------------------------------------------
+
+# Stripe subscription statuses that grant Pro access.
+PRO_STATUSES = frozenset({"active", "trialing"})
+
+# Paid plan tiers (imported inline to avoid circular import at module level)
+def _paid_tiers() -> frozenset:
+    from socialposter.core.plans import PAID_TIERS
+    return PAID_TIERS
+
+
+class Subscription(db.Model):
+    __tablename__ = "subscriptions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(
+        db.Integer, db.ForeignKey("users.id"), unique=True, nullable=False, index=True
+    )
+    stripe_customer_id = db.Column(db.String(255), nullable=True, unique=True, index=True)
+    stripe_subscription_id = db.Column(db.String(255), nullable=True, unique=True, index=True)
+    plan_tier = db.Column(db.String(20), nullable=False, default="free")  # free | essentials | team
+    billing_interval = db.Column(db.String(10), nullable=True, default=None)  # month | year | None for free
+    channels = db.Column(db.Integer, nullable=False, default=1)
+    status = db.Column(db.String(40), nullable=True)  # mirrors Stripe status
+    current_period_end = db.Column(db.DateTime, nullable=True)
+    cancel_at_period_end = db.Column(db.Boolean, nullable=False, default=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    user = db.relationship("User")
+
+    @property
+    def is_pro(self) -> bool:
+        return self.plan_tier in _paid_tiers() and (self.status or "") in PRO_STATUSES
+
+    @property
+    def effective_tier(self) -> str:
+        if self.plan_tier in _paid_tiers() and (self.status or "") in PRO_STATUSES:
+            return self.plan_tier
+        return "free"
+
+
+# ---------------------------------------------------------------------------
 # PostHistory – every publish event
 # ---------------------------------------------------------------------------
 
@@ -571,37 +614,6 @@ class MediaAsset(db.Model):
     )
 
 
-class UserAIConfig(db.Model):
-    """Per-user AI provider API key — 'bring your own key'."""
-    __tablename__ = "user_ai_configs"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    provider_name = db.Column(db.String(50), nullable=False)  # claude, openai, gemini, perplexity
-    _api_key = db.Column("api_key", db.Text, nullable=False, default="")
-    model_id = db.Column(db.String(100), nullable=True)
-    is_active = db.Column(db.Boolean, nullable=False, default=True)
-    created_at = db.Column(
-        db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
-    )
-
-    user = db.relationship("User")
-
-    __table_args__ = (
-        db.UniqueConstraint("user_id", "provider_name", name="uq_user_ai_provider"),
-    )
-
-    @property
-    def api_key(self) -> str:
-        from socialposter.utils.crypto import decrypt_token
-        return decrypt_token(self._api_key) if self._api_key else ""
-
-    @api_key.setter
-    def api_key(self, value: str) -> None:
-        from socialposter.utils.crypto import encrypt_token
-        self._api_key = encrypt_token(value) if value else ""
-
-
 class AIProviderConfig(db.Model):
     __tablename__ = "ai_provider_configs"
 
@@ -647,6 +659,35 @@ class AIModelConfig(db.Model):
     __table_args__ = (
         db.UniqueConstraint("provider_id", "model_id", name="uq_provider_model"),
     )
+
+
+class UserAIKey(db.Model):
+    """Per-user API key for an AI provider. Overrides workspace defaults."""
+    __tablename__ = "user_ai_keys"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    provider = db.Column(db.String(50), nullable=False)  # claude, openai, gemini, perplexity
+    _api_key = db.Column("api_key", db.Text, nullable=False, default="")
+    default_model = db.Column(db.String(100), nullable=True)
+    is_default = db.Column(db.Boolean, nullable=False, default=False)
+    created_at = db.Column(
+        db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "provider", name="uq_user_provider"),
+    )
+
+    @property
+    def api_key(self) -> str:
+        from socialposter.utils.crypto import decrypt_token
+        return decrypt_token(self._api_key) if self._api_key else ""
+
+    @api_key.setter
+    def api_key(self, value: str) -> None:
+        from socialposter.utils.crypto import encrypt_token
+        self._api_key = encrypt_token(value) if value else ""
 
 
 class EngagementMetric(db.Model):
@@ -705,134 +746,252 @@ class InboxComment(db.Model):
     )
 
 
-# ---------------------------------------------------------------------------
-# Webhook Integration
-# ---------------------------------------------------------------------------
+class Conversation(db.Model):
+    """A direct-message thread between the workspace and an external participant."""
 
-class WebhookEndpoint(db.Model):
-    """Outbound webhook subscription — delivers events via HTTP POST."""
-    __tablename__ = "webhook_endpoints"
+    __tablename__ = "conversations"
 
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    name = db.Column(db.String(200), nullable=False)
-    url = db.Column(db.String(2000), nullable=False)
-    secret = db.Column(db.String(128), nullable=False, default="")
-    events = db.Column(db.JSON, nullable=False, default=list)
-    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    team_id = db.Column(db.Integer, db.ForeignKey("teams.id"), nullable=True)
+    platform = db.Column(db.String(50), nullable=False, index=True)
+    # Stable handle for the thread on the platform, e.g. WhatsApp phone, Twitter user_id.
+    platform_thread_id = db.Column(db.String(200), nullable=False)
+    participant_name = db.Column(db.String(200), nullable=False, default="")
+    participant_id = db.Column(db.String(200), nullable=False, default="")
+    participant_avatar_url = db.Column(db.String(500), nullable=False, default="")
+    last_message_text = db.Column(db.Text, nullable=False, default="")
+    last_message_at = db.Column(db.DateTime, nullable=True)
+    unread_count = db.Column(db.Integer, nullable=False, default=0)
     created_at = db.Column(
         db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
-    user = db.relationship("User")
-    logs = db.relationship(
-        "WebhookDeliveryLog", back_populates="endpoint", cascade="all, delete-orphan"
-    )
-
-
-class WebhookInboundToken(db.Model):
-    """Inbound webhook authentication token."""
-    __tablename__ = "webhook_inbound_tokens"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    token = db.Column(db.String(128), unique=True, nullable=False)
-    name = db.Column(db.String(200), nullable=False, default="")
-    is_active = db.Column(db.Boolean, nullable=False, default=True)
-    last_used_at = db.Column(db.DateTime, nullable=True)
-    created_at = db.Column(
-        db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
-    )
-
-    user = db.relationship("User")
-
-
-class WebhookDeliveryLog(db.Model):
-    """Audit log for outbound webhook deliveries."""
-    __tablename__ = "webhook_delivery_logs"
-
-    id = db.Column(db.Integer, primary_key=True)
-    endpoint_id = db.Column(
-        db.Integer, db.ForeignKey("webhook_endpoints.id"), nullable=False, index=True
-    )
-    event = db.Column(db.String(100), nullable=False)
-    payload = db.Column(db.JSON, nullable=True)
-    response_status = db.Column(db.Integer, nullable=True)
-    success = db.Column(db.Boolean, nullable=False, default=False)
-    error_message = db.Column(db.Text, nullable=False, default="")
-    created_at = db.Column(
-        db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
-    )
-
-    endpoint = db.relationship("WebhookEndpoint", back_populates="logs")
-
-
-# ---------------------------------------------------------------------------
-# Competitor Analysis
-# ---------------------------------------------------------------------------
-
-class CompetitorAccount(db.Model):
-    """A competitor account tracked by a user."""
-    __tablename__ = "competitor_accounts"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    platform = db.Column(db.String(50), nullable=False)
-    handle = db.Column(db.String(200), nullable=False)
-    display_name = db.Column(db.String(200), nullable=False, default="")
-    is_active = db.Column(db.Boolean, nullable=False, default=True)
-    last_fetched_at = db.Column(db.DateTime, nullable=True)
-    created_at = db.Column(
-        db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
-    )
-
-    user = db.relationship("User")
-    posts = db.relationship(
-        "CompetitorPost", back_populates="competitor", cascade="all, delete-orphan"
+    messages = db.relationship(
+        "Message", back_populates="conversation", cascade="all, delete-orphan",
+        order_by="Message.sent_at",
     )
 
     __table_args__ = (
-        db.UniqueConstraint("user_id", "platform", "handle", name="uq_user_competitor"),
+        db.UniqueConstraint(
+            "platform", "platform_thread_id", name="uq_platform_thread",
+        ),
+        db.Index("ix_conversation_team_last", "team_id", "last_message_at"),
     )
 
 
-class CompetitorPost(db.Model):
-    """A post fetched from a competitor account."""
-    __tablename__ = "competitor_posts"
+class Message(db.Model):
+    """A single message inside a Conversation (inbound or outbound)."""
+
+    __tablename__ = "messages"
 
     id = db.Column(db.Integer, primary_key=True)
-    competitor_id = db.Column(
-        db.Integer, db.ForeignKey("competitor_accounts.id"), nullable=False, index=True
+    conversation_id = db.Column(
+        db.Integer, db.ForeignKey("conversations.id"), nullable=False, index=True,
     )
-    platform_post_id = db.Column(db.String(500), nullable=False)
+    # Stable id from the platform; nullable for locally-drafted messages awaiting send.
+    platform_message_id = db.Column(db.String(200), nullable=True)
+    direction = db.Column(db.String(10), nullable=False)  # "in" | "out"
+    sender_type = db.Column(db.String(20), nullable=False, default="customer")  # customer | user | ai
+    sender_name = db.Column(db.String(200), nullable=False, default="")
     text = db.Column(db.Text, nullable=False, default="")
-    likes = db.Column(db.Integer, nullable=False, default=0)
-    comments = db.Column(db.Integer, nullable=False, default=0)
-    shares = db.Column(db.Integer, nullable=False, default=0)
-    views = db.Column(db.Integer, nullable=False, default=0)
-    posted_at = db.Column(db.DateTime, nullable=True)
+    sent_at = db.Column(
+        db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False,
+    )
     fetched_at = db.Column(
-        db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+        db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False,
     )
 
-    competitor = db.relationship("CompetitorAccount", back_populates="posts")
+    conversation = db.relationship("Conversation", back_populates="messages")
 
     __table_args__ = (
-        db.UniqueConstraint("competitor_id", "platform_post_id", name="uq_competitor_post"),
+        db.UniqueConstraint(
+            "conversation_id", "platform_message_id", name="uq_conversation_message",
+        ),
     )
 
 
-class CompetitorAnalysis(db.Model):
-    """AI-generated competitor analysis."""
-    __tablename__ = "competitor_analyses"
+class WebhookEvent(db.Model):
+    """Inbound webhook payload from a social platform."""
+
+    __tablename__ = "webhook_events"
 
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    analysis_text = db.Column(db.Text, nullable=False, default="")
-    competitors = db.Column(db.JSON, nullable=False, default=list)
-    period_days = db.Column(db.Integer, nullable=False, default=30)
-    generated_at = db.Column(
-        db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    platform = db.Column(db.String(50), nullable=False, index=True)
+    event_type = db.Column(db.String(80), nullable=True, index=True)
+    payload = db.Column(db.JSON, nullable=True)
+    headers = db.Column(db.JSON, nullable=True)
+    verified = db.Column(db.Boolean, nullable=False, default=False)
+    processed = db.Column(db.Boolean, nullable=False, default=False)
+    error = db.Column(db.Text, nullable=True)
+    created_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+    )
+    processed_at = db.Column(db.DateTime, nullable=True)
+
+    __table_args__ = (
+        db.Index("ix_webhook_platform_created", "platform", "created_at"),
+    )
+
+
+class ActivityLog(db.Model):
+    """Audit trail of significant user actions across the workspace."""
+
+    __tablename__ = "activity_logs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(
+        db.Integer, db.ForeignKey("users.id"), nullable=True, index=True
+    )
+    action = db.Column(db.String(80), nullable=False, index=True)
+    target_type = db.Column(db.String(50), nullable=True)
+    target_id = db.Column(db.String(80), nullable=True)
+    details = db.Column(db.JSON, nullable=True)
+    created_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
     )
 
     user = db.relationship("User")
+
+
+def log_activity(
+    user_id: Optional[int],
+    action: str,
+    target_type: Optional[str] = None,
+    target_id: Optional[str | int] = None,
+    details: Optional[dict] = None,
+    *,
+    autocommit: bool = True,
+) -> None:
+    """Persist an activity log row. Failures are swallowed — never break the
+    caller's flow because of an audit-write error."""
+    try:
+        row = ActivityLog(
+            user_id=user_id,
+            action=action[:80],
+            target_type=target_type[:50] if target_type else None,
+            target_id=str(target_id)[:80] if target_id is not None else None,
+            details=details or None,
+        )
+        db.session.add(row)
+        if autocommit:
+            db.session.commit()
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+
+
+class Webinar(db.Model):
+    __tablename__ = "webinars"
+
+    id: int = db.Column(db.Integer, primary_key=True)
+    user_id: int = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    title: str = db.Column(db.String(300), nullable=False)
+    description: str = db.Column(db.Text, default="")
+    scheduled_at: str = db.Column(db.DateTime, nullable=True)
+    duration_minutes: int = db.Column(db.Integer, default=60)
+    platform_type: str = db.Column(db.String(50), default="zoom")
+    meeting_url: str = db.Column(db.String(500), default="")
+    registration_url: str = db.Column(db.String(500), default="")
+    recording_url: str = db.Column(db.String(500), default="")
+    host_name: str = db.Column(db.String(200), default="")
+    target_audience: str = db.Column(db.String(200), default="")
+    timezone: str = db.Column(db.String(60), default="UTC")
+    tags: str = db.Column(db.JSON, default=list)
+    max_attendees: int = db.Column(db.Integer, nullable=True)
+    status: str = db.Column(db.String(30), default="draft")
+    attendees: str = db.Column(db.JSON, default=list)
+    invitations_sent_at: str = db.Column(db.DateTime, nullable=True)
+    created_at: str = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at: str = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class EmailSetting(db.Model):
+    __tablename__ = "email_settings"
+
+    id: int = db.Column(db.Integer, primary_key=True)
+    user_id: int = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, unique=True)
+    from_name: str = db.Column(db.String(200), default="")
+    from_email: str = db.Column(db.String(200), default="")
+    reply_to_email: str = db.Column(db.String(200), default="")
+    smtp_host: str = db.Column(db.String(200), default="")
+    smtp_port: int = db.Column(db.Integer, default=587)
+    smtp_username: str = db.Column(db.String(200), default="")
+    smtp_password: str = db.Column(db.String(500), default="")
+    created_at: str = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at: str = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+TEMPLATE_SEED = [
+    ("confirmation_email_purchase", "Confirmation Email on Purchase"),
+    ("reminder_email_purchase_dropoff", "Reminder Email on Purchase Drop-off"),
+    ("reminder_email_failed_purchase", "Reminder Email on Failed Purchase"),
+    ("reminder_email_one_day_before_expiry", "Reminder Email One Day Before Expiry"),
+    ("notification_email_new_post", "Notification Email on New Post Creation"),
+    ("notification_email_post_comment", "Notification Email on Post Comment"),
+    ("notification_email_comment_like", "Notification Email on Comment Like"),
+    ("notification_email_comment_reply", "Notification Email on Comment Reply"),
+    ("notification_email_tagging_comment", "Notification Email on Tagging Someone In A Comment"),
+    ("promotional_email_creation", "Promotional Email on Creation"),
+    ("notification_email_single_workshop", "Notification Email on Single Workshop Creation"),
+    ("notification_email_recurring_workshop", "Notification Email on Recurring Workshop Creation"),
+    ("notification_email_reschedule_workshop", "Notification Email on Rescheduling a workshop"),
+    ("notification_email_workshop_cancellation", "Notification Email on Workshop Cancellation"),
+    ("reminder_email_24h_before_workshop", "Reminder Email 24 hours before Workshop"),
+    ("reminder_email_30m_before_workshop", "Reminder Email 30 mins before Workshop"),
+    ("reminder_email_15m_before_workshop", "Reminder Email 15 mins before Workshop"),
+    ("post_workshop_email_15m_after", "Post Workshop Email 15 mins after Workshop"),
+    ("notification_email_subscription_expired", "Notification Email after subscription expired"),
+    ("notification_email_10pct_course", "Notification Email for 10% course completion"),
+    ("notification_email_50pct_course", "Notification Email for 50% course completion"),
+    ("notification_email_100pct_course", "Notification Email for 100% course completion"),
+    ("confirmation_email_1on1_consultation", "Confirmation Email on 1-1 Consultation booking"),
+    ("reminder_email_30m_before_1on1", "Reminder Email 30 mins before 1-1 Consultation"),
+    ("cancellation_email_1on1_consultation", "Cancellation Email on 1-1 Consultation booking cancel"),
+]
+
+
+class EmailTemplate(db.Model):
+    __tablename__ = "email_templates"
+
+    id: int = db.Column(db.Integer, primary_key=True)
+    user_id: int = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    type_key: str = db.Column(db.String(100), nullable=False)
+    name: str = db.Column(db.String(300), nullable=False)
+    enabled: bool = db.Column(db.Boolean, default=True)
+    created_at: str = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at: str = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class PlatformIntegration(db.Model):
+    __tablename__ = "platform_integrations"
+
+    id: int = db.Column(db.Integer, primary_key=True)
+    user_id: int = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, unique=True)
+    zapier_api_key: str = db.Column(db.String(500), default="")
+    pabbly_api_key: str = db.Column(db.String(500), default="")
+    created_at: str = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at: str = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class WhatsAppMessage(db.Model):
+    __tablename__ = "whatsapp_messages"
+
+    id: int = db.Column(db.Integer, primary_key=True)
+    user_id: int = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    name: str = db.Column(db.String(200), nullable=False)
+    template_name: str = db.Column(db.String(200), default="")
+    body: str = db.Column(db.Text, default="")
+    language: str = db.Column(db.String(20), default="en")
+    header_type: str = db.Column(db.String(20), default="none")
+    header_value: str = db.Column(db.String(500), default="")
+    footer: str = db.Column(db.String(200), default="")
+    created_at: str = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at: str = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

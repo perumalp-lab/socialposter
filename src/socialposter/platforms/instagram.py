@@ -114,31 +114,68 @@ class InstagramPlatform(BasePlatform):
             return PostResult(success=False, platform="instagram", error_message="No media provided")
 
         try:
-            # Step 1: Create media container
-            item = media[0]
-            container_data = {"access_token": token, "caption": text}
+            if post_type == "carousel":
+                # Carousel: create individual containers, then a carousel container
+                child_ids = []
+                for item in media:
+                    child_data = {"access_token": token, "is_carousel_item": True}
+                    if item.media_type.value == "image":
+                        child_data["image_url"] = item.path
+                    elif item.media_type.value == "video":
+                        child_data["media_type"] = "VIDEO"
+                        child_data["video_url"] = item.path
+                    else:
+                        continue
+                    child_resp = requests.post(
+                        f"{GRAPH_API}/{ig_id}/media",
+                        data=child_data, timeout=30,
+                    )
+                    if child_resp.status_code != 200:
+                        return PostResult(success=False, platform="instagram",
+                                          error_message=f"Carousel child failed: {child_resp.text[:300]}")
+                    child_ids.append(child_resp.json().get("id"))
 
-            if post_type == "reel" and item.media_type.value == "video":
-                container_data["media_type"] = "REELS"
-                container_data["video_url"] = item.path
-            elif item.media_type.value == "image":
-                container_data["image_url"] = item.path
-            elif item.media_type.value == "video":
-                container_data["media_type"] = "VIDEO"
-                container_data["video_url"] = item.path
+                if not child_ids:
+                    return PostResult(success=False, platform="instagram", error_message="No valid carousel items")
 
-            resp = requests.post(
-                f"{GRAPH_API}/{ig_id}/media",
-                data=container_data,
-                timeout=30,
-            )
-            if resp.status_code != 200:
-                return PostResult(success=False, platform="instagram",
-                                  error_message=f"Container creation failed: {resp.text[:300]}")
+                carousel_data = {
+                    "access_token": token,
+                    "media_type": "CAROUSEL",
+                    "children": ",".join(child_ids),
+                    "caption": text,
+                }
+                carousel_resp = requests.post(
+                    f"{GRAPH_API}/{ig_id}/media",
+                    data=carousel_data, timeout=30,
+                )
+                if carousel_resp.status_code != 200:
+                    return PostResult(success=False, platform="instagram",
+                                      error_message=f"Carousel creation failed: {carousel_resp.text[:300]}")
+                container_id = carousel_resp.json().get("id")
+            else:
+                # Single media container
+                item = media[0]
+                container_data = {"access_token": token, "caption": text}
 
-            container_id = resp.json().get("id")
+                if post_type == "reel" and item.media_type.value == "video":
+                    container_data["media_type"] = "REELS"
+                    container_data["video_url"] = item.path
+                elif item.media_type.value == "image":
+                    container_data["image_url"] = item.path
+                elif item.media_type.value == "video":
+                    container_data["media_type"] = "VIDEO"
+                    container_data["video_url"] = item.path
 
-            # Step 2: Publish the container
+                resp = requests.post(
+                    f"{GRAPH_API}/{ig_id}/media",
+                    data=container_data, timeout=30,
+                )
+                if resp.status_code != 200:
+                    return PostResult(success=False, platform="instagram",
+                                      error_message=f"Container creation failed: {resp.text[:300]}")
+                container_id = resp.json().get("id")
+
+            # Publish the container
             pub_resp = requests.post(
                 f"{GRAPH_API}/{ig_id}/media_publish",
                 data={"creation_id": container_id, "access_token": token},

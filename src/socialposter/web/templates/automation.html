@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Automation – KRYPTAMS{% endblock %}
+{% block title %}Automation – Kryptams{% endblock %}
 
 {% block topbar_nav %}
 <nav class="topbar-nav" id="topbar-nav">
@@ -12,8 +12,6 @@
   <a href="{{ url_for('media.media_page') }}">Media</a>
   <a href="{{ url_for('main.connections') }}">Connections</a>
   <a href="{{ url_for('automation.automation_page') }}" class="active">Automation</a>
-  <a href="{{ url_for('webhooks.webhooks_page') }}">Webhooks</a>
-  <a href="{{ url_for('competitors.competitors_page') }}">Competitors</a>
   {% if current_user.is_admin %}
   <a href="{{ url_for('team.team_page') }}">Team</a>
   <a href="{{ url_for('admin.settings') }}">Admin</a>

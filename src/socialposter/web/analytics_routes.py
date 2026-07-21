@@ -15,10 +15,7 @@ from socialposter.web.models import PostHistory, EngagementMetric, PublishedPost
 analytics_bp = Blueprint("analytics", __name__)
 
 
-@analytics_bp.route("/analytics")
-@login_required
-def dashboard():
-    return render_template("analytics.html")
+# /analytics Jinja page removed — React SPA owns it.
 
 
 @analytics_bp.route("/api/analytics/summary")
@@ -208,6 +205,42 @@ def api_best_times():
     hours.sort(key=lambda x: x["avg_engagement_rate"], reverse=True)
 
     return jsonify({"hours": hours})
+
+
+@analytics_bp.route("/api/analytics/heatmap")
+@login_required
+def api_heatmap():
+    """Posting heatmap by weekday × hour."""
+    days = request.args.get("days", 90, type=int)
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+
+    rows = (
+        db.session.query(
+            func.strftime("%w", PostHistory.created_at).label("dow"),
+            func.strftime("%H", PostHistory.created_at).label("hour"),
+            func.count(PostHistory.id).label("count"),
+        )
+        .filter(
+            PostHistory.user_id == current_user.id,
+            PostHistory.created_at >= since,
+            PostHistory.success == True,  # noqa: E712
+        )
+        .group_by("dow", "hour")
+        .all()
+    )
+
+    # SQLite %w is 0=Sunday..6=Saturday. Normalise to 0=Monday..6=Sunday.
+    cells = []
+    for r in rows:
+        dow_sun = int(r.dow)
+        dow_mon = (dow_sun + 6) % 7
+        cells.append({
+            "weekday": dow_mon,
+            "hour": int(r.hour),
+            "count": r.count or 0,
+        })
+
+    return jsonify({"cells": cells, "days": days})
 
 
 @analytics_bp.route("/api/analytics/top-posts")

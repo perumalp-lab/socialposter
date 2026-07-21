@@ -1,14 +1,12 @@
-"""Flask web UI for SocialPoster – compose & publish posts via the browser."""
+"""Flask web UI for Kryptams – compose & publish posts via the browser."""
 
 from __future__ import annotations
 
-import logging
 import os
 import uuid
 from pathlib import Path
 from typing import Any
 
-import sqlalchemy
 from flask import Flask, Blueprint, jsonify, render_template, request, send_from_directory
 from flask_cors import CORS
 from flask_login import LoginManager, current_user, login_required
@@ -31,8 +29,12 @@ from socialposter.web.token_auth import token_or_session_required
 # Ensure all platform plugins are imported / registered
 import socialposter.platforms  # noqa: F401
 
-DATA_DIR = Path(os.environ.get("SOCIALPOSTER_DATA_DIR", str(Path.home() / ".socialposter")))
-UPLOAD_DIR = DATA_DIR / "uploads"
+# Upload destination — overridable via env so prod can mount a persistent
+# disk (Render etc.) instead of using the user's home dir.
+UPLOAD_DIR = Path(
+    os.environ.get("SOCIALPOSTER_UPLOAD_DIR")
+    or (Path.home() / ".socialposter" / "uploads")
+)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 template_dir = Path(__file__).parent / "templates"
@@ -45,42 +47,9 @@ static_dir = Path(__file__).parent / "static"
 main_bp = Blueprint("main", __name__)
 
 
-@main_bp.route("/")
-@login_required
-def index():
-    """Serve the main UI."""
-    return render_template("index.html")
-
-
-@main_bp.route("/test")
-def test():
-    """Test route to check if app is running."""
-    return "OK"
-
-
-@main_bp.route("/connections")
-@login_required
-def connections():
-    """Show platform connection status."""
-    from socialposter.utils.datetime import isoformat_or
-
-    platforms_info = []
-    for name, cls in sorted(PlatformRegistry.all().items()):
-        instance = cls()
-        conn = current_user.get_connection(name)
-        info = {
-            "name": name,
-            "display_name": instance.display_name,
-            "connected": conn is not None,
-            "extra_data": conn.extra_data if conn else {},
-        }
-        if conn:
-            info["connected_at"] = isoformat_or(conn.connected_at)
-            info["expires_at"] = isoformat_or(conn.token_expires_at)
-            info["is_expired"] = conn.is_token_expired
-            info["account_name"] = (conn.extra_data or {}).get("account_name", "")
-        platforms_info.append(info)
-    return render_template("connections.html", platforms=platforms_info)
+# NOTE: Old Jinja UI routes (/, /connections, etc.) were removed when the
+# React SPA took over the browser UI. The catch-all in this file serves the
+# SPA for any non-API path. Page state lives in /api/* JSON endpoints below.
 
 
 _ALLOWED_CONFIG_KEYS = {
@@ -128,6 +97,15 @@ def api_connection_config(platform: str):
     db.session.commit()
     log.info("User %s updated %s config: %s", current_user.id, platform, updated_keys)
 
+    from socialposter.web.models import log_activity
+    log_activity(
+        current_user.id,
+        "connection.config_update",
+        target_type="connection",
+        target_id=platform,
+        details={"updated_keys": updated_keys},
+    )
+
     return jsonify({"ok": True, "extra_data": extra})
 
 
@@ -146,6 +124,246 @@ def api_platforms():
             "connected": current_user.is_connected(name),
         })
     return jsonify(platforms_info)
+
+
+_ADMIN_OAUTH_KEYS = [
+    ("meta_client_id", "Meta App ID", "Shared by Facebook, Instagram, WhatsApp"),
+    ("meta_client_secret", "Meta App Secret", ""),
+    ("linkedin_client_id", "LinkedIn Client ID", ""),
+    ("linkedin_client_secret", "LinkedIn Client Secret", ""),
+    ("google_client_id", "Google Client ID", "For YouTube OAuth"),
+    ("google_client_secret", "Google Client Secret", ""),
+    ("twitter_client_id", "Twitter/X Client ID", "OAuth 2.0 with PKCE"),
+    ("twitter_client_secret", "Twitter/X Client Secret", ""),
+]
+
+_ADMIN_AI_KEYS = [
+    ("ai_provider", "AI Provider", "claude or openai"),
+    ("ai_claude_api_key", "Claude API Key", "From console.anthropic.com"),
+    ("ai_openai_api_key", "OpenAI API Key", "From platform.openai.com"),
+]
+
+_ADMIN_BILLING_KEYS = [
+    ("stripe_secret_key", "Stripe Secret Key", "sk_live_… or sk_test_…"),
+    ("stripe_webhook_secret", "Stripe Webhook Secret", "whsec_… from the webhook endpoint"),
+    ("stripe_price_essentials_monthly", "Stripe Price ID (Essentials Monthly)", "price_… for $6/mo"),
+    ("stripe_price_essentials_yearly", "Stripe Price ID (Essentials Yearly)", "price_… for $60/yr"),
+    ("stripe_price_team_monthly", "Stripe Price ID (Team Monthly)", "price_… for $12/mo"),
+    ("stripe_price_team_yearly", "Stripe Price ID (Team Yearly)", "price_… for $120/yr"),
+]
+
+
+def _mask_secret(value: str) -> str:
+    if not value:
+        return ""
+    if len(value) <= 6:
+        return "*" * len(value)
+    return value[:3] + "*" * (len(value) - 6) + value[-3:]
+
+
+def _admin_only():
+    if not current_user.is_authenticated:
+        return jsonify({"error": "Authentication required"}), 401
+    if not getattr(current_user, "is_admin", False):
+        return jsonify({"error": "Admin access required"}), 403
+    return None
+
+
+@main_bp.route("/api/admin/settings", methods=["GET"])
+@token_or_session_required
+def api_admin_get_settings():
+    block = _admin_only()
+    if block is not None:
+        return block
+    from socialposter.web.models import AppSetting
+
+    def section(keys):
+        out = {}
+        for key, label, hint in keys:
+            val = AppSetting.get(key)
+            out[key] = {
+                "label": label,
+                "hint": hint,
+                "set": bool(val),
+                "masked": _mask_secret(val) if key != "ai_provider" and val else (val or ""),
+            }
+        return out
+
+    return jsonify({
+        "oauth": section(_ADMIN_OAUTH_KEYS),
+        "ai": section(_ADMIN_AI_KEYS),
+        "billing": section(_ADMIN_BILLING_KEYS),
+    })
+
+
+@main_bp.route("/api/admin/activity", methods=["GET"])
+@token_or_session_required
+def api_admin_activity():
+    """List recent activity log entries. Admin only."""
+    block = _admin_only()
+    if block is not None:
+        return block
+    from socialposter.utils.datetime import isoformat_or
+    from socialposter.utils.pagination import paginate_query
+    from socialposter.web.models import ActivityLog
+
+    page = request.args.get("page", 1, type=int)
+    action_filter = (request.args.get("action") or "").strip()
+    user_filter = request.args.get("user_id", type=int)
+
+    query = ActivityLog.query
+    if action_filter:
+        query = query.filter(ActivityLog.action == action_filter)
+    if user_filter:
+        query = query.filter(ActivityLog.user_id == user_filter)
+    query = query.order_by(ActivityLog.created_at.desc())
+
+    def _serialize(row):
+        return {
+            "id": row.id,
+            "user_id": row.user_id,
+            "user_email": row.user.email if row.user else None,
+            "action": row.action,
+            "target_type": row.target_type,
+            "target_id": row.target_id,
+            "details": row.details or {},
+            "created_at": isoformat_or(row.created_at),
+        }
+
+    return jsonify(paginate_query(query, page, serializer=_serialize))
+
+
+@main_bp.route("/api/admin/webhooks", methods=["GET"])
+@token_or_session_required
+def api_admin_webhooks():
+    """List recent webhook events. Admin only."""
+    block = _admin_only()
+    if block is not None:
+        return block
+    from socialposter.utils.datetime import isoformat_or
+    from socialposter.utils.pagination import paginate_query
+    from socialposter.web.models import WebhookEvent
+
+    page = request.args.get("page", 1, type=int)
+    platform_filter = (request.args.get("platform") or "").strip()
+    verified_filter = (request.args.get("verified") or "").strip()
+
+    query = WebhookEvent.query
+    if platform_filter:
+        query = query.filter(WebhookEvent.platform == platform_filter)
+    if verified_filter == "true":
+        query = query.filter(WebhookEvent.verified == True)  # noqa: E712
+    elif verified_filter == "false":
+        query = query.filter(WebhookEvent.verified == False)  # noqa: E712
+    query = query.order_by(WebhookEvent.created_at.desc())
+
+    def _serialize(row):
+        return {
+            "id": row.id,
+            "platform": row.platform,
+            "event_type": row.event_type,
+            "verified": row.verified,
+            "processed": row.processed,
+            "error": row.error,
+            "headers": row.headers or {},
+            "payload_summary": _summarize_payload(row.payload),
+            "created_at": isoformat_or(row.created_at),
+            "processed_at": isoformat_or(row.processed_at),
+        }
+
+    return jsonify(paginate_query(query, page, serializer=_serialize))
+
+
+def _summarize_payload(payload) -> str:
+    """Truncate a JSON payload to a short string for listings."""
+    if payload is None:
+        return ""
+    import json as _json
+    try:
+        s = _json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    except Exception:
+        s = str(payload)
+    return s[:240] + ("…" if len(s) > 240 else "")
+
+
+@main_bp.route("/api/admin/settings", methods=["PUT"])
+@token_or_session_required
+def api_admin_update_settings():
+    block = _admin_only()
+    if block is not None:
+        return block
+    from socialposter.web.models import AppSetting
+    data = request.get_json(silent=True) or {}
+    allowed = (
+        {k for k, _l, _h in _ADMIN_OAUTH_KEYS}
+        | {k for k, _l, _h in _ADMIN_AI_KEYS}
+        | {k for k, _l, _h in _ADMIN_BILLING_KEYS}
+    )
+    updated = []
+    for key, value in data.items():
+        if key not in allowed:
+            continue
+        value = str(value or "").strip()
+        if not value:
+            # Empty value -> skip (do not clobber existing)
+            continue
+        AppSetting.set(key, value)
+        updated.append(key)
+    return jsonify({"ok": True, "updated": updated})
+
+
+_OAUTH_PROVIDER_KEYS = {
+    "linkedin": "linkedin_client_id",
+    "twitter": "twitter_client_id",
+    "youtube": "google_client_id",
+    "meta": "meta_client_id",
+    "facebook": "meta_client_id",
+    "instagram": "meta_client_id",
+    "whatsapp": "meta_client_id",
+}
+
+
+@main_bp.route("/api/oauth/status", methods=["GET"])
+@token_or_session_required
+def api_oauth_status():
+    """Report which platforms have admin OAuth credentials configured."""
+    from socialposter.web.models import AppSetting
+    out = {}
+    for platform, key in _OAUTH_PROVIDER_KEYS.items():
+        out[platform] = bool(AppSetting.get(key))
+    return jsonify(out)
+
+
+@main_bp.route("/api/connection/<platform>/disconnect", methods=["POST"])
+@token_or_session_required
+def api_disconnect(platform: str):
+    """Remove a platform connection. Meta-linked platforms disconnect together."""
+    from socialposter.web.models import PlatformConnection, db
+    meta_linked = {"facebook", "instagram", "whatsapp", "meta"}
+    if platform in meta_linked:
+        conns = PlatformConnection.query.filter(
+            PlatformConnection.user_id == current_user.id,
+            PlatformConnection.platform.in_(["facebook", "instagram", "whatsapp"]),
+        ).all()
+    else:
+        conns = PlatformConnection.query.filter_by(
+            user_id=current_user.id, platform=platform
+        ).all()
+    if not conns:
+        return jsonify({"ok": True, "removed": []})
+    removed = [c.platform for c in conns]
+    for conn in conns:
+        db.session.delete(conn)
+    db.session.commit()
+    from socialposter.web.models import log_activity
+    log_activity(
+        current_user.id,
+        "connection.disconnect",
+        target_type="connection",
+        target_id=platform,
+        details={"removed": removed},
+    )
+    return jsonify({"ok": True, "removed": removed})
 
 
 @main_bp.route("/api/upload", methods=["POST"])
@@ -310,13 +528,6 @@ def offline():
     return render_template("offline.html")
 
 
-@main_bp.route("/sw.js")
-def service_worker():
-    """Serve the service worker with correct content-type."""
-    sw_path = static_dir / "sw.js"
-    return send_from_directory(str(static_dir), "sw.js", mimetype="application/javascript")
-
-
 # ---------------------------------------------------------------------------
 # App Factory
 # ---------------------------------------------------------------------------
@@ -339,77 +550,37 @@ def create_app(test_config: dict | None = None) -> Flask:
     app.config["SECRET_KEY"] = os.environ.get(
         "SOCIALPOSTER_SECRET_KEY", "dev-secret-change-me-in-production"
     )
-    
-    # Session configuration
-    app.config["SESSION_COOKIE_SECURE"] = os.environ.get("FLASK_ENV") == "production"
     app.config["SESSION_COOKIE_HTTPONLY"] = True
-    
-    # For production, use Lax for better security; for development use None to allow cross-origin
-    if os.environ.get("FLASK_ENV") == "production":
-        app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-        # Set cookie domain to allow access across systems
-        if os.environ.get("RENDER_EXTERNAL_URL"):
-            domain = os.environ.get("RENDER_EXTERNAL_URL").replace("https://", "").replace("http://", "")
-            app.config["SESSION_COOKIE_DOMAIN"] = domain
-            logging.info("Session cookie domain: %s", domain)
-    else:
-        app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-    
-    app.config["PERMANENT_SESSION_LIFETIME"] = 2592000  # 30 days
-    app.config["SESSION_REFRESH_EACH_REQUEST"] = True
+    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    app.config["SESSION_PERMANENT"] = True
+    app.config["PERMANENT_SESSION_LIFETIME"] = 30 * 24 * 60 * 60  # 30 days
 
-    # Database configuration
-    database_url = os.environ.get("DATABASE_URL")
-    if database_url:
-        # Fix postgres:// to postgresql:// for newer SQLAlchemy versions
-        if database_url.startswith("postgres://"):
-            database_url = database_url.replace("postgres://", "postgresql://", 1)
-        app.config["SQLALCHEMY_DATABASE_URI"] = database_url
-        logging.info("Using DATABASE_URL from environment")
+    # Database URL resolution:
+    # 1. DATABASE_URL env var (Render Postgres, Heroku, etc.) — preferred for prod.
+    # 2. Local SQLite at ~/.socialposter/socialposter.db — dev fallback.
+    db_url = os.environ.get("DATABASE_URL")
+    if db_url:
+        # SQLAlchemy 2.x rejects the legacy "postgres://" scheme that Render and
+        # Heroku still emit. Rewrite it to the modern "postgresql://" prefix.
+        if db_url.startswith("postgres://"):
+            db_url = "postgresql://" + db_url[len("postgres://"):]
+        app.config["SQLALCHEMY_DATABASE_URI"] = db_url
     else:
-        # SQLite database in the config dir
-        db_path = DATA_DIR / "socialposter.db"
+        db_path = Path.home() / ".socialposter" / "socialposter.db"
         db_path.parent.mkdir(parents=True, exist_ok=True)
         app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{db_path}"
-        logging.info("Using SQLite database at %s", db_path)
-    
-    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
     # Apply test overrides early so they affect DB init
     if test_config:
         app.config.update(test_config)
-    
-    # HTTPS enforcement in production
-    if os.environ.get("FLASK_ENV") == "production":
-        app.config["SESSION_COOKIE_SECURE"] = True
-        logging.info("Production mode: HTTPS enforcement enabled")
 
     # Initialize extensions
-    # CORS: Allow the app to work from any system/device accessing the production URL
-    cors_origins = [
+    CORS(app, origins=[
         "http://localhost:*",
         "http://127.0.0.1:*",
         "capacitor://localhost",
         "http://localhost",
-    ]
-    # Add production origins if available - allow both HTTP and HTTPS
-    if os.environ.get("RENDER_EXTERNAL_URL"):
-        render_url = os.environ.get("RENDER_EXTERNAL_URL")
-        cors_origins.append(render_url)
-        cors_origins.append(render_url.replace("https://", "http://"))
-        logging.info("Added production CORS origins: %s", render_url)
-    
-    # For production, use more permissive CORS (all HTTPS origins)
-    if os.environ.get("FLASK_ENV") == "production":
-        CORS(app, 
-             origins=cors_origins,
-             supports_credentials=True,
-             allow_headers=["Content-Type", "Authorization"],
-             methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-             max_age=3600)
-        logging.info("CORS configured for production with credentials support")
-    else:
-        CORS(app, origins=cors_origins, supports_credentials=True)
+    ])
 
     csrf = CSRFProtect(app)
 
@@ -419,8 +590,9 @@ def create_app(test_config: dict | None = None) -> Flask:
     Migrate(app, db)
 
     login_manager = LoginManager()
-    login_manager.login_view = "auth.login"
-    login_manager.login_message = None  # Disable Flask-Login's default message
+    # SPA owns /login. Set the redirect target as a literal URL so Flask-Login
+    # doesn't try to resolve it as a Flask route name.
+    login_manager.login_view = "/login"
     login_manager.login_message_category = "info"
     login_manager.init_app(app)
 
@@ -442,9 +614,12 @@ def create_app(test_config: dict | None = None) -> Flask:
     from socialposter.web.inbox_routes import inbox_bp
     from socialposter.web.media_routes import media_bp
     from socialposter.web.automation_routes import automation_bp
-    from socialposter.web.user_ai_routes import user_ai_bp
     from socialposter.web.webhook_routes import webhook_bp
-    from socialposter.web.competitor_routes import competitor_bp
+    from socialposter.web.billing_routes import billing_bp
+    from socialposter.web.webinar_routes import webinar_bp
+    from socialposter.web.email_routes import email_bp
+    from socialposter.web.integrations_routes import integration_bp
+    from socialposter.web.whatsapp_routes import whatsapp_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(auth_bp)
@@ -460,57 +635,34 @@ def create_app(test_config: dict | None = None) -> Flask:
     app.register_blueprint(inbox_bp)
     app.register_blueprint(media_bp)
     app.register_blueprint(automation_bp)
-    app.register_blueprint(user_ai_bp)
     app.register_blueprint(webhook_bp)
-    app.register_blueprint(competitor_bp)
+    app.register_blueprint(billing_bp)
+    app.register_blueprint(webinar_bp)
+    app.register_blueprint(email_bp)
+    app.register_blueprint(integration_bp)
+    app.register_blueprint(whatsapp_bp)
 
     # Exempt JSON-only API blueprints from CSRF; keep CSRF on form-based
     # blueprints (auth_bp, admin_bp, oauth_bp).
     for bp in (main_bp, schedule_bp, token_bp, ai_bp, analytics_bp,
                calendar_bp, team_bp, draft_bp, inbox_bp, media_bp,
-               automation_bp, user_ai_bp, webhook_bp, competitor_bp):
+               automation_bp, webhook_bp, billing_bp, webinar_bp, email_bp, integration_bp, whatsapp_bp):
         csrf.exempt(bp)
 
-    # Add security headers
-    @app.after_request
-    def add_security_headers(response):
-        # HTTPS enforcement
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        # Prevent clickjacking
-        response.headers["X-Frame-Options"] = "SAMEORIGIN"
-        # Prevent MIME type sniffing
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        # Enable XSS protection
-        response.headers["X-XSS-Protection"] = "1; mode=block"
-        # Content Security Policy
-        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline' fonts.googleapis.com; style-src 'self' 'unsafe-inline' fonts.googleapis.com; font-src fonts.gstatic.com; connect-src 'self'"
-        # Referrer policy
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        return response
+    # Surface plan-limit violations as 402 Payment Required with the
+    # gate metadata, so the SPA can render an upgrade prompt.
+    from socialposter.core.plans import PlanLimitExceeded
 
-    @app.errorhandler(500)
-    def internal_error(error):
-        logging.exception("Internal Server Error")
-        return "Internal Server Error", 500
+    @app.errorhandler(PlanLimitExceeded)
+    def _handle_plan_limit(exc: PlanLimitExceeded):
+        return jsonify(exc.to_dict()), 402
 
     # Create tables
     with app.app_context():
-        try:
-            logging.info("Creating database tables...")
-            db.create_all()
-            logging.info("Database tables created successfully")
-        except sqlalchemy.exc.OperationalError as exc:
-            message = str(exc).lower()
-            if "already exists" in message or "table users already exists" in message:
-                logging.warning("Database table already exists during startup; continuing.")
-            else:
-                logging.error("Failed to create database tables: %s", exc)
-                raise
-        except Exception as exc:
-            logging.error("Unexpected error during database initialization: %s", exc)
-            raise
+        db.create_all()
 
         # Auto-migration: add missing columns to existing tables
+        import sqlalchemy
         with db.engine.connect() as conn:
             inspector = sqlalchemy.inspect(db.engine)
             if "users" in inspector.get_table_names():
@@ -520,50 +672,6 @@ def create_app(test_config: dict | None = None) -> Flask:
                         "ALTER TABLE users ADD COLUMN timezone VARCHAR(50) NOT NULL DEFAULT 'UTC'"
                     ))
                     conn.commit()
-                
-                # Auto-migration: expand password_hash column if needed (for longer hashes)
-                try:
-                    password_col = next((c for c in inspector.get_columns("users") if c["name"] == "password_hash"), None)
-                    if password_col:
-                        col_type_str = str(password_col.get("type", "")).lower()
-                        col_length = password_col.get("type").length if hasattr(password_col.get("type"), "length") else None
-                        logging.info("password_hash column: type=%s, length=%s", col_type_str, col_length)
-                        
-                        # Check if it needs expansion
-                        needs_expansion = False
-                        if "varchar" in col_type_str:
-                            if col_length and col_length < 500:
-                                needs_expansion = True
-                                logging.warning("password_hash column is VARCHAR(%d), needs expansion to VARCHAR(500)", col_length)
-                            elif col_length is None:
-                                # If length is None, it might be VARCHAR without explicit length
-                                if "varchar" in col_type_str and "500" not in col_type_str:
-                                    needs_expansion = True
-                                    logging.warning("password_hash column appears to be small VARCHAR, expanding to 500")
-                        
-                        if needs_expansion:
-                            db_name = db.engine.dialect.name
-                            if db_name == "postgresql":
-                                logging.warning("CRITICAL: Expanding password_hash column from %s to VARCHAR(500)", col_type_str)
-                                try:
-                                    # Drop any constraints first if needed
-                                    conn.execute(sqlalchemy.text(
-                                        "ALTER TABLE users ALTER COLUMN password_hash TYPE VARCHAR(500)"
-                                    ))
-                                    conn.commit()
-                                    logging.info("✓ Successfully expanded password_hash column to VARCHAR(500)")
-                                except Exception as e:
-                                    logging.error("Failed to expand column: %s", e)
-                                    conn.rollback()
-                            elif db_name == "sqlite":
-                                logging.warning("SQLite: Cannot alter VARCHAR size, using SQLite approach")
-                                # For SQLite, we'd need to recreate the table, so we just log it
-                            else:
-                                logging.warning("Unknown database: %s, cannot auto-migrate", db_name)
-                        else:
-                            logging.info("✓ password_hash column is adequate size: %s(%s)", col_type_str, col_length)
-                except Exception as e:
-                    logging.error("Error during password_hash migration: %s", e)
 
         # Auto-migration: ensure admin users have a default team
         from socialposter.web.models import Team, TeamMember
@@ -586,20 +694,67 @@ def create_app(test_config: dict | None = None) -> Flask:
                 ))
         db.session.commit()
 
-    # Start background scheduler (avoid double-start in Flask reloader)
-    if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
-        try:
-            from socialposter.core.scheduler import init_scheduler
-            logging.info("Starting background scheduler...")
-            init_scheduler(app)
-            logging.info("Background scheduler started successfully")
-        except Exception as exc:
-            logging.error("Failed to start background scheduler: %s", exc)
-            # Don't crash the app if scheduler fails, just warn
-            if app.debug:
-                raise
+    # Start background scheduler (avoid double-start in Flask reloader, and
+    # skip entirely in tests / worker processes).
+    if (
+        not app.config.get("TESTING")
+        and not os.environ.get("SOCIALPOSTER_SKIP_SCHEDULER")
+        and (not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true")
+    ):
+        from socialposter.core.scheduler import init_scheduler
+        init_scheduler(app)
+
+    _register_spa(app)
 
     return app
+
+
+# ---------------------------------------------------------------------------
+# SPA serving
+# ---------------------------------------------------------------------------
+
+def _register_spa(app: Flask) -> None:
+    """Serve the built React SPA (frontend/dist) for any non-API path.
+
+    Looks for the build at <repo_root>/frontend/dist or
+    /opt/render/project/src/frontend/dist (Render's working dir). If absent
+    (eg. local dev where the SPA is served separately by Vite), this is a
+    no-op and Flask returns 404 for unknown paths as usual.
+    """
+    candidates = [
+        Path(__file__).resolve().parents[3] / "frontend" / "dist",
+        Path("/opt/render/project/src/frontend/dist"),
+    ]
+    spa_dir = next((p for p in candidates if (p / "index.html").exists()), None)
+    if spa_dir is None:
+        app.logger.info("SPA build not found — Flask will not serve the SPA.")
+        return
+
+    app.logger.info("Serving SPA from %s", spa_dir)
+    index_html = (spa_dir / "index.html").read_text(encoding="utf-8")
+
+    # Reserved prefixes that the SPA must NOT shadow.
+    api_prefixes = ("api/", "oauth/", "uploads/", "static/", "admin/api")
+
+    @app.route("/", defaults={"path": ""})
+    @app.route("/<path:path>")
+    def spa_catch_all(path: str):
+        # Don't shadow API / OAuth / file routes — let Flask 404 if they
+        # reach here (they shouldn't, since real routes match first).
+        if any(path.startswith(p) for p in api_prefixes):
+            return jsonify({"error": "Not found"}), 404
+
+        # If the request is for a real file in the SPA build, serve it.
+        if path:
+            target = (spa_dir / path).resolve()
+            if (
+                target.is_file()
+                and spa_dir.resolve() in target.parents
+            ):
+                return send_from_directory(spa_dir, path)
+
+        # Otherwise hand back index.html so React Router takes over.
+        return index_html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
 def run_server(host: str = "0.0.0.0", port: int = 5000, debug: bool = True):

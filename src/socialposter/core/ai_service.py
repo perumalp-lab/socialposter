@@ -191,6 +191,36 @@ _PROVIDER_CLASSES: dict[str, type[AIProvider]] = {
 }
 
 
+_COST_TIER_RANK = {"low": 0, "standard": 1, "premium": 2}
+
+
+def _pick_cheapest_workspace_model(provider_name: str) -> str | None:
+    """Return the cheapest model_id for a workspace provider config, or None."""
+    try:
+        from socialposter.web.models import AIProviderConfig
+        pc = AIProviderConfig.query.filter_by(
+            name=provider_name, is_active=True
+        ).first()
+        if not pc or not pc.models:
+            return None
+        ranked = sorted(
+            pc.models,
+            key=lambda m: _COST_TIER_RANK.get(m.cost_tier, 1),
+        )
+        return ranked[0].model_id if ranked else None
+    except Exception:
+        return None
+
+
+def _cost_optimization_enabled() -> bool:
+    return (AppSetting.get("ai_cost_optimization") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
 def get_provider(
     provider_name: str | None = None,
     model_id: str | None = None,
@@ -199,39 +229,57 @@ def get_provider(
 ) -> AIProvider:
     """Resolve and return an AI provider instance.
 
-    Resolution order:
-    1. Per-user ``UserAIConfig`` (if *user_id* is supplied)
-    2. Admin ``AIProviderConfig`` (database-driven)
-    3. Legacy ``AppSetting``
+    Resolution order for the API key, given a provider_name:
+    1. The current user's UserAIKey row for this provider (if user_id given).
+    2. The workspace AIProviderConfig row (database-driven).
+    3. The legacy AppSetting for that provider.
 
-    *provider_name*, *model_id* and *temperature* override per-provider
-    defaults when supplied.
+    If provider_name is None, prefer the user's default UserAIKey, then
+    AppSetting's ai_provider, then fall back to "claude".
     """
+    # Determine effective provider when not specified.
+    if not provider_name and user_id is not None:
+        try:
+            from socialposter.web.models import UserAIKey
+            uk = UserAIKey.query.filter_by(user_id=user_id, is_default=True).first()
+            if uk and uk.api_key:
+                provider_name = uk.provider
+        except Exception:
+            pass
     if not provider_name:
         provider_name = AppSetting.get("ai_provider", "claude")
 
-    # 1. Per-user key (highest priority)
-    if user_id:
+    cls = _PROVIDER_CLASSES.get(provider_name, ClaudeProvider)
+    # When cost optimization is on AND the caller didn't pin a model, route
+    # to the cheapest workspace-configured model for this provider.
+    cost_route = model_id is None and _cost_optimization_enabled()
+
+    # 1) User-specific key first.
+    if user_id is not None:
         try:
-            from socialposter.web.models import UserAIConfig
-            uc = UserAIConfig.query.filter_by(
-                user_id=user_id, provider_name=provider_name, is_active=True
+            from socialposter.web.models import UserAIKey
+            uk = UserAIKey.query.filter_by(
+                user_id=user_id, provider=provider_name
             ).first()
-            if uc and uc.api_key:
-                kwargs: dict = {"api_key": uc.api_key}
+            if uk and uk.api_key:
+                kwargs: dict = {"api_key": uk.api_key}
                 if model_id:
                     kwargs["model"] = model_id
-                elif uc.model_id:
-                    kwargs["model"] = uc.model_id
+                elif cost_route:
+                    cheapest = _pick_cheapest_workspace_model(provider_name)
+                    if cheapest:
+                        kwargs["model"] = cheapest
+                    elif uk.default_model:
+                        kwargs["model"] = uk.default_model
+                elif uk.default_model:
+                    kwargs["model"] = uk.default_model
                 if temperature is not None:
                     kwargs["temperature"] = temperature
-                cls = _PROVIDER_CLASSES.get(provider_name)
-                if cls:
-                    return cls(**kwargs)
+                return cls(**kwargs)
         except Exception:
             pass
 
-    # 2. Admin AIProviderConfig (database-driven)
+    # 2) Workspace AIProviderConfig.
     try:
         from socialposter.web.models import AIProviderConfig, AIModelConfig
         pc = AIProviderConfig.query.filter_by(name=provider_name, is_active=True).first()
@@ -240,20 +288,25 @@ def get_provider(
             if model_id:
                 kwargs["model"] = model_id
             elif pc.models:
-                default_model = next(
-                    (m for m in pc.models if m.is_default), None
-                ) or (pc.models[0] if pc.models else None)
-                if default_model:
-                    kwargs["model"] = default_model.model_id
+                if cost_route:
+                    ranked = sorted(
+                        pc.models,
+                        key=lambda m: _COST_TIER_RANK.get(m.cost_tier, 1),
+                    )
+                    chosen = ranked[0]
+                else:
+                    chosen = next(
+                        (m for m in pc.models if m.is_default), None,
+                    ) or pc.models[0]
+                if chosen:
+                    kwargs["model"] = chosen.model_id
             if temperature is not None:
                 kwargs["temperature"] = temperature
-            cls = _PROVIDER_CLASSES.get(provider_name)
-            if cls:
-                return cls(**kwargs)
+            return cls(**kwargs)
     except Exception:
-        pass  # Fallback to AppSetting-based approach
+        pass
 
-    # 3. Legacy AppSetting fallback
+    # Legacy AppSetting fallback
     key_map = {
         "claude": "ai_claude_api_key",
         "openai": "ai_openai_api_key",
@@ -264,10 +317,10 @@ def get_provider(
     api_key = AppSetting.get(setting_key)
     if not api_key:
         raise ValueError(
-            f"{provider_name.title()} API key is not configured. Set it in Admin > Settings."
+            f"{provider_name.title()} API key is not configured. "
+            "Add your own key in Settings, or ask an admin to configure it."
         )
 
-    cls = _PROVIDER_CLASSES.get(provider_name, ClaudeProvider)
     kwargs = {"api_key": api_key}
     if model_id:
         kwargs["model"] = model_id
@@ -393,6 +446,36 @@ def generate_structured_content(
             "cta": "",
         }
     return result
+
+
+def suggest_reply(
+    comment_text: str,
+    author_name: str = "",
+    platform: str = "",
+    post_text: str = "",
+    tone: str = "friendly",
+    provider_name: str | None = None,
+    model_id: str | None = None,
+    temperature: float | None = None,
+    user_id: int | None = None,
+) -> str:
+    """Draft a reply to a social comment in the requested tone."""
+    provider = get_provider(provider_name, model_id, temperature, user_id=user_id)
+    platform_hint = f" on {platform}" if platform else ""
+    author_hint = f" from {author_name}" if author_name else ""
+    post_context = f"\n\nOriginal post text:\n{post_text}" if post_text else ""
+
+    system = (
+        "You are a brand's community manager. Draft a single short reply to a "
+        "social media comment. Be helpful, specific, and on-brand. Match the "
+        f"requested tone: {tone}. Keep it under 280 characters. Return ONLY the "
+        "reply text — no quotes, no commentary, no preamble."
+    )
+    user = (
+        f"Comment{author_hint}{platform_hint}:\n{comment_text}{post_context}\n\n"
+        "Draft the reply now."
+    )
+    return provider.chat(system, user).strip().strip('"').strip("'")
 
 
 def suggest_hashtags(

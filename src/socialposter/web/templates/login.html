@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Log In – KRYPTAMS{% endblock %}
+{% block title %}Log In – Kryptams{% endblock %}
 
 {% block content %}
 <main class="auth-container">
@@ -23,10 +23,6 @@
         <label for="password">Password</label>
         <input type="password" id="password" name="password" required placeholder="Your password" />
       </div>
-      <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 20px;">
-        <input type="checkbox" id="remember" name="remember" style="width: 18px; height: 18px; cursor: pointer;" />
-        <label for="remember" style="margin: 0; cursor: pointer; font-size: 0.9rem;">Remember me</label>
-      </div>
       <button type="submit" class="btn btn-primary btn-block">Log In</button>
     </form>
 
@@ -35,23 +31,4 @@
     </p>
   </div>
 </main>
-
-<script>
-  // Preserve email field on page load (for when login fails and page reloads)
-  document.addEventListener('DOMContentLoaded', function() {
-    var emailInput = document.getElementById('email');
-    var savedEmail = localStorage.getItem('sp_login_email');
-    if (savedEmail && emailInput) {
-      emailInput.value = savedEmail;
-    }
-    
-    // Save email when form is submitted
-    var form = document.querySelector('form');
-    if (form && emailInput) {
-      form.addEventListener('submit', function() {
-        localStorage.setItem('sp_login_email', emailInput.value);
-      });
-    }
-  });
-</script>
 {% endblock %}

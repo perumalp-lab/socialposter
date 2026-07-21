@@ -81,26 +81,15 @@ class TestCSRFProtection:
             _db.create_all()
         return app
 
-    def test_login_post_without_csrf_rejected(self, csrf_app):
-        """POST to /login without a CSRF token should be rejected."""
+    def test_session_login_works_without_csrf(self, csrf_app):
+        """The SPA's JSON auth endpoint must accept POST without a CSRF
+        token (token_bp is intentionally CSRF-exempt). It should reject the
+        request on auth grounds (401), not CSRF grounds (400)."""
         with csrf_app.test_client() as c:
-            resp = c.post("/login", data={"email": "a@b.com", "password": "test1234"})
-            assert resp.status_code == 400  # CSRF validation failure
-
-    def test_login_post_with_csrf_accepted(self, csrf_app):
-        """POST to /login with a valid CSRF token should not get a 400 CSRF error."""
-        with csrf_app.test_client() as c:
-            # GET the login page to obtain the CSRF token
-            get_resp = c.get("/login")
-            html = get_resp.data.decode()
-            match = re.search(r'name="csrf_token"\s+value="([^"]+)"', html)
-            assert match, "CSRF token not found in login page"
-            token = match.group(1)
-
-            resp = c.post("/login", data={
-                "email": "a@b.com",
-                "password": "test1234",
-                "csrf_token": token,
-            })
-            # Should NOT be 400 (CSRF); will be a redirect or re-render
-            assert resp.status_code != 400
+            resp = c.post(
+                "/api/auth/session-login",
+                json={"email": "a@b.com", "password": "test1234"},
+            )
+            # 401 = auth failure (expected for unknown user); 400 would mean
+            # CSRF rejected the request, which would break the SPA.
+            assert resp.status_code == 401

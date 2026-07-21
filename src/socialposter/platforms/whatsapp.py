@@ -171,3 +171,54 @@ class WhatsAppPlatform(BasePlatform):
     # WhatsApp does not support comment fetching (requires webhooks)
     def supports_comment_fetching(self) -> bool:
         return False
+
+    # ------------------------------------------------------------------
+    # Send single text message (used by inbox reply flow)
+    # ------------------------------------------------------------------
+
+    def send_text_message(
+        self, user_id: int, recipient: str, text: str,
+    ) -> tuple[str | None, str | None]:
+        """Send a single free-form text message. Returns (message_id, error).
+
+        Free-form replies only succeed within WhatsApp's 24h customer service
+        window. Outside that window the call returns a 4xx with code 131047.
+        """
+        if not recipient or not text:
+            return None, "recipient and text required"
+        conn = self._get_connection(user_id)
+        phone_id = self._get_phone_number_id(user_id)
+        if not conn or not phone_id:
+            return None, "Not authenticated"
+
+        endpoint = f"{GRAPH_API}/{phone_id}/messages"
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": recipient,
+            "type": "text",
+            "text": {"body": text},
+        }
+        try:
+            resp = requests.post(
+                endpoint,
+                headers={
+                    "Authorization": f"Bearer {conn.access_token}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=15,
+            )
+        except requests.RequestException as e:
+            return None, f"network: {e}"
+
+        if resp.status_code != 200:
+            return None, f"HTTP {resp.status_code}: {resp.text[:300]}"
+
+        try:
+            data = resp.json()
+        except ValueError:
+            return None, "invalid JSON response"
+        messages = data.get("messages") or []
+        if messages and isinstance(messages[0], dict):
+            return messages[0].get("id"), None
+        return None, "no message id in response"

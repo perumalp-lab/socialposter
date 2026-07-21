@@ -1,14 +1,14 @@
 /* ===================================================================
-   KRYPTAMS – Web UI JavaScript
+   Kryptams – Web UI JavaScript
    =================================================================== */
 
 // ─── Service Worker Registration ───
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", function () {
-    navigator.serviceWorker.register("/sw.js").then(function (reg) {
-      console.log("[KRYPTAMS] SW registered, scope:", reg.scope);
+    navigator.serviceWorker.register("/static/sw.js").then(function (reg) {
+      console.log("[Kryptams] SW registered, scope:", reg.scope);
     }).catch(function (err) {
-      console.warn("[KRYPTAMS] SW registration failed:", err);
+      console.warn("[Kryptams] SW registration failed:", err);
     });
   });
 }
@@ -60,7 +60,7 @@ function apiFetch(path, options) {
   // ─── DOM refs (resolved after DOMContentLoaded) ───
   var platformGrid, postText, charCounter, uploadZone, fileInput, browseBtn;
   var uploadPlaceholder, mediaPreviewList, overridesCard, overridesContainer;
-  var previewTabs, previewBody, btnPublish, btnDryRun;
+  var previewTabs, previewBody, btnPublish, btnDryRun, mobilePublishBtn;
   var resultsCard, resultsBody, loadingOverlay, loadingText, toastContainer;
 
   function cacheDom() {
@@ -78,11 +78,94 @@ function apiFetch(path, options) {
     previewBody       = document.getElementById("preview-body");
     btnPublish        = document.getElementById("btn-publish");
     btnDryRun         = document.getElementById("btn-dry-run");
+    mobilePublishBtn  = document.getElementById("mobile-publish-btn");
     resultsCard       = document.getElementById("results-card");
     resultsBody       = document.getElementById("results-body");
     loadingOverlay    = document.getElementById("loading-overlay");
     loadingText       = document.getElementById("loading-text");
     toastContainer    = document.getElementById("toast-container");
+
+    // Start with publish controls disabled until state is computed
+    if (btnPublish) btnPublish.disabled = true;
+    if (btnDryRun) btnDryRun.disabled = true;
+    if (mobilePublishBtn) mobilePublishBtn.disabled = true;
+
+    // Light up step 1 immediately rather than waiting for /api/platforms
+    updateComposeSteps();
+  }
+
+  // ─── Publish Button Gating ───
+  // Tooltips shown when the buttons are ready (overridden with the block reason
+  // when disabled).
+  var BTN_PUBLISH_READY_TITLE = "Publish to selected platforms";
+  var BTN_DRYRUN_READY_TITLE = "Validate without publishing";
+  var BTN_MOBILE_PUBLISH_READY_TITLE = "Publish";
+
+  function getPublishBlockReason() {
+    if (!state.platforms || state.platforms.length === 0) {
+      return "Loading platforms...";
+    }
+    if (state.selectedPlatforms.length === 0) {
+      return "Select at least one connected platform first";
+    }
+    if (!postText.value.trim() && state.mediaFiles.length === 0) {
+      return "Add some text or media before publishing";
+    }
+    return null;
+  }
+
+  function updatePublishState() {
+    var reason = getPublishBlockReason();
+    var disabled = reason !== null;
+
+    if (btnPublish) {
+      btnPublish.disabled = disabled;
+      btnPublish.title = reason || BTN_PUBLISH_READY_TITLE;
+    }
+    if (btnDryRun) {
+      btnDryRun.disabled = disabled;
+      btnDryRun.title = reason || BTN_DRYRUN_READY_TITLE;
+    }
+    if (mobilePublishBtn) {
+      mobilePublishBtn.disabled = disabled;
+      mobilePublishBtn.title = reason || BTN_MOBILE_PUBLISH_READY_TITLE;
+      mobilePublishBtn.setAttribute("aria-disabled", disabled ? "true" : "false");
+    }
+
+    updateComposeSteps();
+  }
+
+  // ─── Compose Progress Strip ───
+  // Lights up steps as the user progresses: Connect → Select → Write → Publish.
+  // The "publish" step never marks done here — it's the action, not a state.
+  function updateComposeSteps() {
+    var stepsEl = document.getElementById("compose-steps");
+    if (!stepsEl) return;
+
+    var hasConnected = state.platforms.some(function (p) { return p.connected; });
+    var hasSelected = state.selectedPlatforms.length > 0;
+    var hasContent = !!postText.value.trim() || state.mediaFiles.length > 0;
+
+    var done = {
+      connect: hasConnected,
+      select: hasSelected,
+      write: hasContent,
+      publish: false,
+    };
+
+    var order = ["connect", "select", "write", "publish"];
+    var currentIdx = order.length;
+    for (var i = 0; i < order.length; i++) {
+      if (!done[order[i]]) { currentIdx = i; break; }
+    }
+
+    for (var j = 0; j < order.length; j++) {
+      var li = stepsEl.querySelector('[data-step="' + order[j] + '"]');
+      if (!li) continue;
+      li.classList.remove("done", "current");
+      if (done[order[j]]) li.classList.add("done");
+      if (j === currentIdx) li.classList.add("current");
+    }
   }
 
   // ─── AI DOM refs ───
@@ -105,13 +188,13 @@ function apiFetch(path, options) {
   // ─── Init ───
   async function init() {
     cacheDom();
-    console.log("[KRYPTAMS] DOM cached, loading platforms...");
+    console.log("[Kryptams] DOM cached, loading platforms...");
     await loadPlatforms();
     bindEvents();
     initAI();
     loadAIModels();
     initAISlider();
-    console.log("[KRYPTAMS] Ready.");
+    console.log("[Kryptams] Ready.");
   }
 
   async function loadAIModels() {
@@ -130,7 +213,7 @@ function apiFetch(path, options) {
         select.appendChild(opt);
       }
     } catch (e) {
-      console.warn("[SocialPoster] Failed to load AI models:", e);
+      console.warn("[Kryptams] Failed to load AI models:", e);
     }
   }
 
@@ -149,11 +232,40 @@ function apiFetch(path, options) {
       var resp = await apiFetch("/api/platforms");
       if (!resp.ok) throw new Error("HTTP " + resp.status);
       state.platforms = await resp.json();
-      console.log("[SocialPoster] Loaded platforms:", state.platforms.map(function(p){return p.name;}));
+      console.log("[Kryptams] Loaded platforms:", state.platforms.map(function(p){return p.name;}));
       renderPlatformGrid();
+      maybeShowWelcomeBanner();
     } catch (e) {
-      console.error("[SocialPoster] Failed to load platforms:", e);
+      console.error("[Kryptams] Failed to load platforms:", e);
       toast("Failed to load platforms: " + e.message, "error");
+    }
+  }
+
+  // ─── First-run Welcome Banner ───
+  // Shows once for users who have at least one connected platform (i.e., past
+  // the initial "no platforms" empty-state CTA). Dismissal is sticky via
+  // localStorage so it never reappears.
+  var WELCOME_KEY = "sp_seen_welcome";
+  function maybeShowWelcomeBanner() {
+    var banner = document.getElementById("welcome-banner");
+    if (!banner) return;
+    try {
+      if (localStorage.getItem(WELCOME_KEY)) return;
+    } catch (e) {
+      // localStorage unavailable (private mode, etc.) — show the banner but
+      // accept that we can't persist dismissal.
+    }
+    var hasConnected = state.platforms.some(function (p) { return p.connected; });
+    if (!hasConnected) return;
+
+    banner.hidden = false;
+    var closeBtn = document.getElementById("welcome-banner-close");
+    if (closeBtn && !closeBtn.dataset.bound) {
+      closeBtn.dataset.bound = "1";
+      closeBtn.addEventListener("click", function () {
+        banner.hidden = true;
+        try { localStorage.setItem(WELCOME_KEY, "1"); } catch (e) {}
+      });
     }
   }
 
@@ -168,10 +280,11 @@ function apiFetch(path, options) {
       platformGrid.innerHTML =
         '<div class="empty-state">' +
           '<svg width="40" height="40" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round"><rect x="4" y="4" width="32" height="32" rx="6" stroke-dasharray="4 3"/><path d="M20 14v12M14 20h12"/></svg>' +
-          '<h3>No platforms connected</h3>' +
-          '<p>Connect your social media accounts to start publishing.</p>' +
-          '<a href="/connections" class="btn btn-primary btn-sm">Go to Connections</a>' +
+          '<h3>Step 1 — Connect an account</h3>' +
+          '<p>Link Instagram, LinkedIn, X, Facebook, YouTube, or WhatsApp to start publishing.</p>' +
+          '<a href="/connections" class="btn btn-primary btn-sm">Connect a platform</a>' +
         '</div>';
+      updatePublishState();
       return;
     }
     if (connectedPlatforms.length > 1) {
@@ -207,6 +320,7 @@ function apiFetch(path, options) {
         updateOverrides();
         updatePreview();
         updateCharCounter();
+        updatePublishState();
       });
       toggleRow.appendChild(toggleBtn);
       platformGrid.parentNode.insertBefore(toggleRow, platformGrid);
@@ -239,6 +353,8 @@ function apiFetch(path, options) {
       }
       platformGrid.appendChild(chip);
     });
+
+    updatePublishState();
   }
 
   // ─── Toggle Platform ───
@@ -263,6 +379,7 @@ function apiFetch(path, options) {
     updatePreview();
     updateCharCounter();
     updateSelectAllBtn();
+    updatePublishState();
   }
 
   function updateSelectAllBtn() {
@@ -281,6 +398,7 @@ function apiFetch(path, options) {
       updateCharCounter();
       updatePreview();
       autoFillYouTube();
+      updatePublishState();
     });
 
     browseBtn.addEventListener("click", function(e) {
@@ -310,11 +428,11 @@ function apiFetch(path, options) {
     });
 
     btnPublish.addEventListener("click", function() {
-      console.log("[SocialPoster] Publish clicked");
+      console.log("[Kryptams] Publish clicked");
       publish(false);
     });
     btnDryRun.addEventListener("click", function() {
-      console.log("[SocialPoster] Dry Run clicked");
+      console.log("[Kryptams] Dry Run clicked");
       publish(true);
     });
   }
@@ -337,12 +455,13 @@ function apiFetch(path, options) {
         state.mediaFiles.push(data);
         toast("Uploaded: " + data.filename, "success");
       } catch (e) {
-        console.error("[SocialPoster] Upload error:", e);
+        console.error("[Kryptams] Upload error:", e);
         toast("Upload failed: " + e.message, "error");
       }
     }
     renderMediaPreviews();
     updatePreview();
+    updatePublishState();
     uploadPlaceholder.style.display = state.mediaFiles.length ? "none" : "block";
   }
 
@@ -372,6 +491,7 @@ function apiFetch(path, options) {
         state.mediaFiles.splice(idx, 1);
         renderMediaPreviews();
         updatePreview();
+        updatePublishState();
         uploadPlaceholder.style.display = state.mediaFiles.length ? "none" : "block";
       });
     }
@@ -617,7 +737,7 @@ function apiFetch(path, options) {
           '<svg width="48" height="48" fill="none" stroke="#cbd5e1" stroke-width="1.5" stroke-linecap="round">' +
             '<circle cx="24" cy="24" r="20"/><path d="M16 20h16M16 28h8"/>' +
           '</svg>' +
-          '<p>Select platforms and start typing to see a preview</p>' +
+          '<p>Pick a platform above to preview your post — Instagram, LinkedIn, X, and more, side by side.</p>' +
         '</div>';
       return;
     }
@@ -706,7 +826,7 @@ function apiFetch(path, options) {
             '<div class="preview-post-handle">' + escHtml(displayName) + ' &middot; Just now</div>' +
           '</div>' +
         '</div>' +
-        '<div class="preview-post-text">' + (escHtml(text) || '<span style="color:#94a3b8;">Your post text will appear here...</span>') + '</div>' +
+        '<div class="preview-post-text">' + (escHtml(text) || '<span style="color:#94a3b8;">Start typing — your post will appear here as you write.</span>') + '</div>' +
         mediaHtml +
         '<div class="preview-post-footer">' +
           '<span>&#9825; Like</span>' +
@@ -719,9 +839,9 @@ function apiFetch(path, options) {
 
   // ─── Publish ───
   async function publish(dryRun) {
-    console.log("[SocialPoster] publish() called, dryRun=" + dryRun);
-    console.log("[SocialPoster] selectedPlatforms:", state.selectedPlatforms);
-    console.log("[SocialPoster] text length:", postText.value.length, "media count:", state.mediaFiles.length);
+    console.log("[Kryptams] publish() called, dryRun=" + dryRun);
+    console.log("[Kryptams] selectedPlatforms:", state.selectedPlatforms);
+    console.log("[Kryptams] text length:", postText.value.length, "media count:", state.mediaFiles.length);
 
     if (state.selectedPlatforms.length === 0) {
       toast("Please select at least one platform", "error");
@@ -736,9 +856,10 @@ function apiFetch(path, options) {
     loadingText.textContent = dryRun ? "Running validation..." : "Publishing to platforms...";
     loadingOverlay.style.display = "flex";
 
-    // Disable buttons
+    // Disable buttons during publish
     btnPublish.disabled = true;
     btnDryRun.disabled = true;
+    if (mobilePublishBtn) mobilePublishBtn.disabled = true;
 
     var payload = {
       text: postText.value,
@@ -750,7 +871,7 @@ function apiFetch(path, options) {
       dry_run: dryRun,
     };
 
-    console.log("[SocialPoster] Sending payload:", JSON.stringify(payload));
+    console.log("[Kryptams] Sending payload:", JSON.stringify(payload));
 
     try {
       var resp = await apiFetch("/api/post", {
@@ -758,9 +879,9 @@ function apiFetch(path, options) {
         body: JSON.stringify(payload),
       });
 
-      console.log("[SocialPoster] Response status:", resp.status);
+      console.log("[Kryptams] Response status:", resp.status);
       var data = await resp.json();
-      console.log("[SocialPoster] Response data:", data);
+      console.log("[Kryptams] Response data:", data);
 
       if (data.error) {
         toast(data.error, "error");
@@ -778,13 +899,12 @@ function apiFetch(path, options) {
         allOk ? "success" : "info"
       );
     } catch (e) {
-      console.error("[SocialPoster] Publish error:", e);
+      console.error("[Kryptams] Publish error:", e);
       toast("Request failed: " + e.message, "error");
     } finally {
-      // Always hide loading and re-enable buttons
+      // Always hide loading and recompute correct button state
       loadingOverlay.style.display = "none";
-      btnPublish.disabled = false;
-      btnDryRun.disabled = false;
+      updatePublishState();
     }
   }
 
@@ -853,7 +973,7 @@ function apiFetch(path, options) {
 
   function toast(message, type) {
     type = type || "info";
-    console.log("[SocialPoster] Toast [" + type + "]:", message);
+    console.log("[Kryptams] Toast [" + type + "]:", message);
     var el = document.createElement("div");
     el.className = "toast " + type;
     var icons = { success: "&#10003;", error: "&#10007;", info: "&#8505;" };
@@ -1228,7 +1348,7 @@ function apiFetch(path, options) {
             handleFiles([file]);
           });
         }).catch(function (err) {
-          console.warn("[SocialPoster] Camera error:", err);
+          console.warn("[Kryptams] Camera error:", err);
         });
       } else {
         cameraInput.click();
@@ -1286,7 +1406,7 @@ function apiFetch(path, options) {
   // ─── Capacitor Deep Link Handler ───
   function initCapacitor() {
     if (!isCapacitor) return;
-    console.log("[SocialPoster] Running in Capacitor");
+    console.log("[Kryptams] Running in Capacitor");
 
     // Configure StatusBar if available
     if (window.Capacitor.Plugins && window.Capacitor.Plugins.StatusBar) {
@@ -1297,7 +1417,7 @@ function apiFetch(path, options) {
     // Handle deep links (socialposter://oauth/complete)
     if (window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
       window.Capacitor.Plugins.App.addListener("appUrlOpen", function (data) {
-        console.log("[SocialPoster] Deep link:", data.url);
+        console.log("[Kryptams] Deep link:", data.url);
         if (data.url && data.url.indexOf("socialposter://oauth/complete") === 0) {
           window.location.href = "/connections";
         }

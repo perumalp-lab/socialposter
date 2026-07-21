@@ -116,19 +116,3 @@ class BasePlatform(ABC):
         or None if not supported.
         """
         return None
-
-    # ------------------------------------------------------------------
-    # Competitor / Public Post Fetching (optional – override in subclasses)
-    # ------------------------------------------------------------------
-
-    def supports_public_post_fetching(self) -> bool:
-        """Return True if this platform supports fetching public posts by handle."""
-        return False
-
-    def fetch_public_posts(self, user_id: int, handle: str, count: int = 20) -> list[dict]:
-        """Fetch public posts for a given handle.
-
-        Return list of dicts with keys: post_id, text, likes, comments,
-        shares, views, posted_at.
-        """
-        return []

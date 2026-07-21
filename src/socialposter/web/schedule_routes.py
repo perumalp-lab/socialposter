@@ -8,7 +8,7 @@ from flask import Blueprint, jsonify, request
 from flask_login import current_user
 
 from socialposter.utils.datetime import parse_user_datetime
-from socialposter.web.models import ScheduledPost, ScheduleLog, db
+from socialposter.web.models import ScheduledPost, ScheduleLog, db, log_activity
 from socialposter.web.token_auth import token_or_session_required
 
 schedule_bp = Blueprint("schedule", __name__, url_prefix="/api/schedules")
@@ -67,6 +67,10 @@ def create_schedule():
     else:
         next_run = datetime.now(timezone.utc).replace(tzinfo=None)
 
+    from socialposter.core.plans import enforce_plan_limit
+
+    enforce_plan_limit(current_user, "scheduled_posts")
+
     sched = ScheduledPost(
         user_id=current_user.id,
         name=name,
@@ -80,6 +84,17 @@ def create_schedule():
     db.session.add(sched)
     db.session.commit()
 
+    log_activity(
+        current_user.id,
+        "schedule.create",
+        target_type="schedule",
+        target_id=sched.id,
+        details={
+            "name": sched.name,
+            "platforms": sched.platforms,
+            "interval_minutes": sched.interval_minutes,
+        },
+    )
     return jsonify(_serialize_schedule(sched)), 201
 
 
@@ -161,8 +176,16 @@ def delete_schedule(schedule_id: int):
     if not sched:
         return jsonify({"error": "Schedule not found"}), 404
 
+    name = sched.name
     db.session.delete(sched)
     db.session.commit()
+    log_activity(
+        current_user.id,
+        "schedule.delete",
+        target_type="schedule",
+        target_id=schedule_id,
+        details={"name": name},
+    )
     return jsonify({"ok": True})
 
 

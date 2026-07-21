@@ -44,7 +44,7 @@ class TwitterPlatform(BasePlatform):
         conn = self._get_connection(user_id)
         if not conn:
             return None
-        return tweepy.Client(bearer_token=conn.access_token)
+        return tweepy.Client(access_token=conn.access_token)
 
     def authenticate(self, user_id: int) -> bool:
         client = self._get_client(user_id)
@@ -86,7 +86,17 @@ class TwitterPlatform(BasePlatform):
 
         try:
             response = client.create_tweet(text=text)
-            tweet_id = response.data.get("id")
+            if response.errors:
+                return PostResult(
+                    success=False, platform="twitter",
+                    error_message="; ".join(str(e) for e in response.errors),
+                )
+            tweet_id = response.data.get("id") if response.data else None
+            if not tweet_id:
+                return PostResult(
+                    success=False, platform="twitter",
+                    error_message="No tweet id in response",
+                )
 
             # Handle thread if defined
             override = content.platforms.twitter
@@ -94,7 +104,10 @@ class TwitterPlatform(BasePlatform):
                 parent_id = tweet_id
                 for thread_text in override.thread:
                     resp = client.create_tweet(text=thread_text, in_reply_to_tweet_id=parent_id)
-                    parent_id = resp.data.get("id")
+                    if resp.errors:
+                        break
+                    if resp.data:
+                        parent_id = resp.data.get("id")
 
             return PostResult(
                 success=True,
@@ -118,7 +131,7 @@ class TwitterPlatform(BasePlatform):
             conn = self._get_connection(user_id)
             if not conn:
                 return []
-            client = tweepy.Client(bearer_token=conn.access_token)
+            client = tweepy.Client(access_token=conn.access_token)
             # Search for mentions/replies to the tweet
             me = client.get_me()
             if not me.data:
@@ -154,47 +167,35 @@ class TwitterPlatform(BasePlatform):
             return {"success": False, "error": str(e)}
 
     # ------------------------------------------------------------------
-    # Competitor / Public Post Fetching
+    # Send single DM (used by inbox reply flow)
     # ------------------------------------------------------------------
 
-    def supports_public_post_fetching(self) -> bool:
-        return True
+    def send_text_message(
+        self, user_id: int, recipient: str, text: str,
+    ) -> tuple[str | None, str | None]:
+        """Send a direct message. Returns (message_id, error).
 
-    def fetch_public_posts(self, user_id: int, handle: str, count: int = 20) -> list[dict]:
-        """Fetch public tweets by handle using the user's bearer token."""
+        Recipient is the participant's Twitter user_id (numeric string).
+        Twitter DMs require OAuth 2.0 user-context with `dm.write` scope and a
+        paid API plan; expect 401/403 on free-tier accounts.
+        """
+        if not recipient or not text:
+            return None, "recipient and text required"
         try:
-            import tweepy
-            conn = self._get_connection(user_id)
-            if not conn:
-                return []
-            client = tweepy.Client(bearer_token=conn.access_token)
-
-            # Look up user by username
-            user_resp = client.get_user(username=handle)
-            if not user_resp.data:
-                return []
-
-            target_id = user_resp.data.id
-            tweets = client.get_users_tweets(
-                target_id,
-                max_results=min(count, 100),
-                tweet_fields=["created_at", "public_metrics"],
-            )
-
-            results = []
-            if tweets.data:
-                for tweet in tweets.data:
-                    metrics = tweet.public_metrics or {}
-                    results.append({
-                        "post_id": str(tweet.id),
-                        "text": tweet.text,
-                        "likes": metrics.get("like_count", 0),
-                        "comments": metrics.get("reply_count", 0),
-                        "shares": metrics.get("retweet_count", 0),
-                        "views": metrics.get("impression_count", 0),
-                        "posted_at": tweet.created_at,
-                    })
-            return results
+            client = self._get_client(user_id)
         except Exception as e:
-            logger.warning("[Twitter] Failed to fetch public posts for %s: %s", handle, e)
-            return []
+            return None, f"client init failed: {e}"
+        if client is None:
+            return None, "Not authenticated"
+        try:
+            resp = client.create_direct_message(
+                participant_id=str(recipient), text=text,
+            )
+        except Exception as e:
+            return None, f"send failed: {e}"
+
+        # tweepy returns a Response with .data; the DM id lives there.
+        data = getattr(resp, "data", None)
+        if isinstance(data, dict):
+            return str(data.get("dm_event_id") or data.get("id") or "") or None, None
+        return None, None

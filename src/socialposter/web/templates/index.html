@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}KRYPTAMS{% endblock %}
+{% block title %}Kryptams{% endblock %}
 
 {% block topbar_nav %}
 <nav class="topbar-nav" id="topbar-nav">
@@ -12,8 +12,6 @@
   <a href="{{ url_for('media.media_page') }}">Media</a>
   <a href="{{ url_for('main.connections') }}">Connections</a>
   <a href="{{ url_for('automation.automation_page') }}">Automation</a>
-  <a href="{{ url_for('webhooks.webhooks_page') }}">Webhooks</a>
-  <a href="{{ url_for('competitors.competitors_page') }}">Competitors</a>
   {% if current_user.is_admin %}
   <a href="{{ url_for('team.team_page') }}">Team</a>
   <a href="{{ url_for('admin.settings') }}">Admin</a>
@@ -64,6 +62,49 @@
 <main class="app-layout">
   <!-- LEFT: COMPOSER -->
   <section class="composer-panel">
+    <!-- First-run Welcome Banner (hidden by default; JS reveals when appropriate) -->
+    <div class="welcome-banner" id="welcome-banner" hidden>
+      <div class="welcome-banner-body">
+        <strong>Welcome — let's get your first post live.</strong>
+        <span>Tip: click <em>AI Generate</em> below if you need a starting draft. Describe a topic and we'll write the post for you.</span>
+      </div>
+      <button type="button" class="welcome-banner-close" id="welcome-banner-close" aria-label="Dismiss welcome message">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3l8 8M11 3l-8 8"/></svg>
+      </button>
+    </div>
+
+    <!-- Progress Strip -->
+    <ol class="compose-steps" id="compose-steps" aria-label="Posting progress">
+      <li class="compose-step" data-step="connect">
+        <span class="step-marker">
+          <span class="step-num">1</span>
+          <svg class="step-check" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l3 3 5-5"/></svg>
+        </span>
+        <span class="step-label">Connect</span>
+      </li>
+      <li class="compose-step" data-step="select">
+        <span class="step-marker">
+          <span class="step-num">2</span>
+          <svg class="step-check" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l3 3 5-5"/></svg>
+        </span>
+        <span class="step-label">Select</span>
+      </li>
+      <li class="compose-step" data-step="write">
+        <span class="step-marker">
+          <span class="step-num">3</span>
+          <svg class="step-check" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l3 3 5-5"/></svg>
+        </span>
+        <span class="step-label">Write</span>
+      </li>
+      <li class="compose-step" data-step="publish">
+        <span class="step-marker">
+          <span class="step-num">4</span>
+          <svg class="step-check" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l3 3 5-5"/></svg>
+        </span>
+        <span class="step-label">Publish</span>
+      </li>
+    </ol>
+
     <!-- Platform Selector -->
     <div class="card">
       <h2 class="card-title">
@@ -81,12 +122,15 @@
         <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h12M4 10h8M4 14h10"/></svg>
         Content
       </h2>
+      <p class="ai-hint">
+        Stuck? <strong>AI Generate</strong> drafts a post from a topic — <strong>Optimize All</strong> tailors your text for each platform.
+      </p>
       <div class="ai-toolbar" id="ai-toolbar">
-        <button type="button" class="btn btn-outline btn-sm" id="btn-ai-generate" title="Generate content with AI">
+        <button type="button" class="btn btn-outline btn-sm" id="btn-ai-generate" title="Draft a post from a topic, audience, and tone">
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 1v12M1 7h12"/></svg>
           AI Generate
         </button>
-        <button type="button" class="btn btn-outline btn-sm" id="btn-ai-optimize" title="Optimize text for each platform">
+        <button type="button" class="btn btn-outline btn-sm" id="btn-ai-optimize" title="Rewrite your text to fit each platform's style and length">
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 10l4-6 4 6"/><path d="M10 4l2 2-2 2"/></svg>
           Optimize All
         </button>
@@ -159,7 +203,7 @@
         <div id="ai-results-body"></div>
       </div>
       <div class="textarea-wrap">
-        <textarea id="post-text" placeholder="What's on your mind? Write your post here..." rows="6"></textarea>
+        <textarea id="post-text" placeholder="What do you want to share today? Type your post — or use AI Generate to draft from a topic." rows="6"></textarea>
         <div class="char-counter" id="char-counter">0</div>
       </div>
     </div>
@@ -178,7 +222,7 @@
             <rect x="4" y="4" width="32" height="32" rx="4" stroke-dasharray="4 3"/>
             <path d="M20 14v12M14 20h12"/>
           </svg>
-          <p>Drag & drop images or videos here</p>
+          <p>Drop photos or videos to attach them to your post</p>
           <span>or <button type="button" class="link-btn" id="browse-btn">browse files</button></span>
           <button type="button" class="link-btn mobile-only" id="camera-btn" style="display:none;">
             <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="8" cy="9" r="3"/><path d="M2 7a2 2 0 012-2h1.5l1-2h5l1 2H14a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2z"/></svg>

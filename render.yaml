@@ -1,9 +1,20 @@
+databases:
+  - name: socialposter-db
+    plan: free
+    databaseName: socialposter
+    user: socialposter
+
 services:
   - type: web
     name: socialposter
-    runtime: python3
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn --workers 1 --timeout 120 --bind 0.0.0.0:$PORT socialposter.web.app:create_app
+    runtime: python
+    buildCommand: |
+      pip install ".[postgres]"
+      cd frontend && npm ci && npm run build
+    # Single worker: APScheduler runs in-process, so multiple workers would
+    # fire each scheduled post once per worker. Stick with 1 until the
+    # scheduler moves to a separate dyno or uses a DB-backed lock.
+    startCommand: gunicorn "socialposter.web.app:create_app()" --bind 0.0.0.0:$PORT --workers 1
     envVars:
       - key: SOCIALPOSTER_SECRET_KEY
         generateValue: true
@@ -11,11 +22,18 @@ services:
         generateValue: true
       - key: FLASK_APP
         value: socialposter.web.app:create_app
-      - key: FLASK_ENV
-        value: production
       - key: PYTHON_VERSION
         value: "3.12"
-databases:
-  - name: socialposter-db
-    databaseName: socialposter
-    user: socialposter
+      - key: DATABASE_URL
+        fromDatabase:
+          name: socialposter-db
+          property: connectionString
+      # Tell the app to write uploads onto the persistent disk below.
+      - key: SOCIALPOSTER_UPLOAD_DIR
+        value: /var/data/uploads
+    # Persistent disk so user uploads survive restarts and redeploys.
+    # Render charges $0.25/GB-month; 1 GB is the minimum.
+    disk:
+      name: uploads
+      mountPath: /var/data
+      sizeGB: 1

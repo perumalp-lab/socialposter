@@ -154,7 +154,7 @@ def _execute_actions(rule, app) -> list[dict]:
                 from socialposter.core.ai_service import generate_content
                 topic = params.get("topic", "engaging social media content")
                 platforms = params.get("platforms", [])
-                text = generate_content(topic, platforms, user_id=rule.user_id)
+                text = generate_content(topic, platforms)
                 results.append({
                     "type": "ai_generate",
                     "text": text[:200],
@@ -176,45 +176,5 @@ def _execute_actions(rule, app) -> list[dict]:
                 "success": True,
                 "note": "Repost queued",
             })
-
-        elif action_type == "webhook":
-            # POST to a configured URL
-            try:
-                import requests as _requests
-                url = params.get("url", "")
-                payload = params.get("payload", {})
-                payload["rule_name"] = rule.name
-                payload["rule_id"] = rule.id
-                if url:
-                    resp = _requests.post(url, json=payload, timeout=10)
-                    results.append({
-                        "type": "webhook",
-                        "url": url,
-                        "status": resp.status_code,
-                        "success": 200 <= resp.status_code < 300,
-                    })
-                else:
-                    results.append({
-                        "type": "webhook",
-                        "success": False,
-                        "error": "No URL configured",
-                    })
-            except Exception as e:
-                results.append({
-                    "type": "webhook",
-                    "success": False,
-                    "error": str(e),
-                })
-
-    # Dispatch automation.triggered webhook event
-    try:
-        from socialposter.core.webhook_dispatcher import dispatch_event
-        dispatch_event(app, "automation.triggered", {
-            "rule_id": rule.id,
-            "rule_name": rule.name,
-            "actions": results,
-        }, user_id=rule.user_id)
-    except Exception:
-        pass
 
     return results

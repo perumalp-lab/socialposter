@@ -112,10 +112,12 @@ class FacebookPlatform(BasePlatform):
                 files = {}
                 data = {"caption": text, "access_token": token}
                 if not media[0].path.startswith("http"):
-                    files = {"source": open(media[0].path, "rb")}
+                    with open(media[0].path, "rb") as f:
+                        files = {"source": f}
+                        resp = requests.post(endpoint, data=data, files=files, timeout=60)
                 else:
                     data["url"] = media[0].path
-                resp = requests.post(endpoint, data=data, files=files, timeout=60)
+                    resp = requests.post(endpoint, data=data, timeout=60)
             else:
                 # Text/link post
                 endpoint = f"{GRAPH_API}/{page_id}/feed"

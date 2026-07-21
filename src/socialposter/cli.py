@@ -1,4 +1,4 @@
-"""Click CLI for SocialPoster."""
+"""Click CLI for Kryptams."""
 
 from __future__ import annotations
 
@@ -8,10 +8,10 @@ from socialposter import __version__
 
 
 @click.group(invoke_without_command=True)
-@click.version_option(version=__version__, prog_name="socialposter")
+@click.version_option(version=__version__, prog_name="kryptams")
 @click.pass_context
 def main(ctx: click.Context) -> None:
-    """SocialPoster – multi-platform social media publishing tool."""
+    """Kryptams – multi-platform social media publishing tool."""
     if ctx.invoked_subcommand is None:
         ctx.invoke(serve)
 
@@ -25,7 +25,7 @@ def main(ctx: click.Context) -> None:
 @click.option("--port", default=5000, show_default=True, type=int, help="Port number")
 @click.option("--debug/--no-debug", default=True, show_default=True, help="Enable debug mode")
 def serve(host: str, port: int, debug: bool) -> None:
-    """Launch the SocialPoster web server."""
+    """Launch the Kryptams web server."""
     from socialposter.web.app import create_app
 
     app = create_app()
@@ -145,3 +145,18 @@ def downgrade() -> None:
     with app.app_context():
         _downgrade()
     click.echo("Database downgraded.")
+
+
+# ---------------------------------------------------------------------------
+# worker
+# ---------------------------------------------------------------------------
+
+@main.command()
+def worker() -> None:
+    """Run an RQ worker that processes scheduled-post and fetch jobs.
+
+    Requires REDIS_URL to be set.
+    """
+    from socialposter.worker import main as _worker_main
+
+    raise SystemExit(_worker_main())

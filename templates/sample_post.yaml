@@ -42,7 +42,7 @@ platforms:
 
       No more copy-pasting across platforms!
 
-      Tech stack: Python, Typer, Pydantic, OAuth 2.0
+      Tech stack: Python, Click, Pydantic, OAuth 2.0
 
       Would love your feedback. Link in comments.
 

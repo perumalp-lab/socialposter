@@ -174,22 +174,8 @@ class TestWhatsAppValidation:
 # ===================================================================
 
 class TestConnectionsSaveConfig:
-    """Verify the connections template includes auth token logic."""
-
-    def test_connections_page_has_bearer_token_logic(self, client):
-        """The connections page JS should include Bearer token for mobile."""
-        resp = client.get("/connections")
-        assert resp.status_code == 200
-        html = resp.data.decode()
-        assert "sp_auth_token" in html
-        assert "Authorization" in html
-        assert "Bearer" in html
-
-    def test_connections_page_uses_api_base(self, client):
-        """The saveConfig should use SOCIALPOSTER_API_BASE for mobile."""
-        resp = client.get("/connections")
-        html = resp.data.decode()
-        assert "SOCIALPOSTER_API_BASE" in html
+    """The Flask /connections Jinja page was removed; the SPA owns that path
+    now. Only the JSON config endpoint is part of the public contract."""
 
     def test_save_config_endpoint_works(self, client, db, test_user):
         """POST /api/connection/whatsapp/config should save phone_number_id."""

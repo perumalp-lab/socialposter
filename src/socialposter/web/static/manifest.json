@@ -1,6 +1,6 @@
 {
-  "name": "KRYPTAMS",
-  "short_name": "KRYPTAMS",
+  "name": "Kryptams",
+  "short_name": "Kryptams",
   "description": "Post content to LinkedIn, YouTube, Instagram, Facebook, X, and WhatsApp from one UI.",
   "start_url": "/",
   "display": "standalone",

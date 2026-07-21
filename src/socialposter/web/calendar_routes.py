@@ -5,7 +5,7 @@ from __future__ import annotations
 import calendar
 from datetime import datetime, timezone
 
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
 
 from socialposter.utils.datetime import get_user_tz
@@ -13,11 +13,7 @@ from socialposter.web.models import PostHistory, ScheduledPost
 
 calendar_bp = Blueprint("calendar_view", __name__)
 
-
-@calendar_bp.route("/calendar")
-@login_required
-def calendar_page():
-    return render_template("calendar.html")
+# /calendar Jinja page removed — React SPA owns it (when wired).
 
 
 @calendar_bp.route("/api/calendar/events")

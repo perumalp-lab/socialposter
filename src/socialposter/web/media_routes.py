@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import mimetypes
-import os
 import uuid
 from pathlib import Path
 
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, abort, jsonify, render_template, request, send_from_directory
 from flask_login import current_user, login_required
 
 from socialposter.utils.pagination import paginate_query
@@ -15,18 +14,30 @@ from socialposter.utils.team import get_current_team_id
 from socialposter.web.models import MediaAsset, db
 from socialposter.web.token_auth import token_or_session_required
 
-DATA_DIR = Path(os.environ.get("SOCIALPOSTER_DATA_DIR", str(Path.home() / ".socialposter")))
-UPLOAD_DIR = DATA_DIR / "uploads"
+import os
+
+# Same env var as app.py — keeps the two upload paths in sync. Falls back
+# to ~/.socialposter/uploads for local dev when no env override is set.
+UPLOAD_DIR = Path(
+    os.environ.get("SOCIALPOSTER_UPLOAD_DIR")
+    or (Path.home() / ".socialposter" / "uploads")
+)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 media_bp = Blueprint("media", __name__)
 
 
-@media_bp.route("/media")
+# /media Jinja page removed — React SPA owns it. /uploads serving stays.
+
+
+@media_bp.route("/uploads/<path:filename>")
 @login_required
-def media_page():
-    """Serve the media library UI."""
-    return render_template("media.html")
+def serve_upload(filename: str):
+    """Serve a file from the uploads directory (login-gated)."""
+    # Block path traversal: filename must be a single component.
+    if "/" in filename or "\\" in filename or ".." in filename:
+        abort(404)
+    return send_from_directory(str(UPLOAD_DIR), filename)
 
 
 @media_bp.route("/api/media", methods=["GET"])
@@ -54,6 +65,7 @@ def api_media_list():
             "id": m.id,
             "filename": m.filename,
             "file_path": m.file_path,
+            "url": f"/uploads/{Path(m.file_path).name}" if m.file_path else None,
             "media_type": m.media_type,
             "mime_type": m.mime_type,
             "file_size": m.file_size,
@@ -113,6 +125,7 @@ def api_media_upload():
         "ok": True,
         "id": asset.id,
         "path": str(save_path),
+        "url": f"/uploads/{save_path.name}",
         "filename": file.filename,
         "media_type": media_type,
         "file_size": file_size,

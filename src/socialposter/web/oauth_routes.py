@@ -34,10 +34,13 @@ def _generate_pkce():
 
 
 def _oauth_complete_redirect():
-    """Redirect to mobile deep link or web connections page after OAuth."""
+    """Redirect to mobile deep link, SPA connections page, or Flask page after OAuth."""
     if session.pop("oauth_source_mobile", False):
         return redirect("socialposter://oauth/complete")
-    return redirect(url_for("main.connections"))
+    spa_origin = session.pop("oauth_spa_origin", None)
+    if spa_origin:
+        return redirect(f"{spa_origin}/connections?oauth=ok")
+    return redirect("/connections")
 
 
 def _validate_oauth_callback(platform_label: str):
@@ -52,14 +55,17 @@ def _validate_oauth_callback(platform_label: str):
     if request.args.get("error"):
         desc = request.args.get("error_description") or request.args.get("error", "")
         flash(f"{platform_label} authorization denied: {desc}", "error")
-        return redirect(url_for("main.connections"))
+        return redirect("/connections")
 
     state = request.args.get("state")
     if state != session.pop("oauth_state", None):
         flash("Invalid OAuth state.", "error")
-        return redirect(url_for("main.connections"))
+        return redirect("/connections")
 
     code = request.args.get("code")
+    if not code:
+        flash(f"No authorization code received from {platform_label}.", "error")
+        return redirect("/connections")
     return code
 
 
@@ -106,11 +112,38 @@ def connect(platform: str):
     # Track mobile source for post-OAuth redirect
     if request.args.get("source") == "mobile":
         session["oauth_source_mobile"] = True
+    elif request.args.get("source") == "spa":
+        # Capture the SPA's origin from the referrer so we can return there
+        # after the OAuth round-trip lands back on Flask.
+        from urllib.parse import urlparse
+        referrer = request.referrer or ""
+        parsed = urlparse(referrer)
+        if parsed.scheme and parsed.netloc:
+            session["oauth_spa_origin"] = f"{parsed.scheme}://{parsed.netloc}"
 
     handler = _CONNECT_HANDLERS.get(platform)
     if not handler:
         flash(f"Unknown platform: {platform}", "error")
-        return redirect(url_for("main.connections"))
+        return redirect("/connections")
+
+    # Plan gate — only enforced when the user is connecting a *new* slot.
+    # Re-authenticating an already-connected platform (or any Meta member
+    # if the bundle is already linked) skips the gate.
+    from socialposter.core.plans import LIMITS, _connected_slots, slot_for
+
+    target_slot = slot_for(platform)
+    slots = _connected_slots(current_user.id)
+    if target_slot not in slots:
+        plan_name = current_user.plan
+        limit = LIMITS[plan_name].platform_connections
+        if 0 <= limit <= len(slots):
+            flash(
+                f"Your {plan_name} plan allows up to {limit} platform connection(s). "
+                "Upgrade to Pro to connect more.",
+                "error",
+            )
+            return redirect("/settings/billing")
+
     return handler()
 
 
@@ -121,7 +154,7 @@ def callback(platform: str):
     handler = _CALLBACK_HANDLERS.get(platform)
     if not handler:
         flash(f"Unknown platform: {platform}", "error")
-        return redirect(url_for("main.connections"))
+        return redirect("/connections")
     return handler()
 
 
@@ -153,7 +186,7 @@ def disconnect(platform: str):
             db.session.delete(conn)
             db.session.commit()
             flash(f"Disconnected from {platform}.", "success")
-    return redirect(url_for("main.connections"))
+    return redirect("/connections")
 
 
 # ===================================================================
@@ -164,7 +197,7 @@ def _connect_meta():
     client_id = AppSetting.get("meta_client_id")
     if not client_id:
         flash("Admin has not configured Meta OAuth credentials.", "error")
-        return redirect(url_for("main.connections"))
+        return redirect("/connections")
 
     state = secrets.token_urlsafe(32)
     session["oauth_state"] = state
@@ -200,7 +233,7 @@ def _callback_meta():
     )
     if not resp.ok:
         flash("Failed to exchange Meta authorization code.", "error")
-        return redirect(url_for("main.connections"))
+        return redirect("/connections")
 
     data = resp.json()
     short_token = data["access_token"]
@@ -274,7 +307,7 @@ def _connect_linkedin():
     client_id = AppSetting.get("linkedin_client_id")
     if not client_id:
         flash("Admin has not configured LinkedIn OAuth credentials.", "error")
-        return redirect(url_for("main.connections"))
+        return redirect("/connections")
 
     state = secrets.token_urlsafe(32)
     session["oauth_state"] = state
@@ -310,7 +343,7 @@ def _callback_linkedin():
     )
     if not resp.ok:
         flash("Failed to exchange LinkedIn authorization code.", "error")
-        return redirect(url_for("main.connections"))
+        return redirect("/connections")
 
     data = resp.json()
     _save_connection(
@@ -331,7 +364,7 @@ def _connect_youtube():
     client_id = AppSetting.get("google_client_id")
     if not client_id:
         flash("Admin has not configured Google OAuth credentials.", "error")
-        return redirect(url_for("main.connections"))
+        return redirect("/connections")
 
     state = secrets.token_urlsafe(32)
     session["oauth_state"] = state
@@ -369,7 +402,7 @@ def _callback_youtube():
     )
     if not resp.ok:
         flash("Failed to exchange Google authorization code.", "error")
-        return redirect(url_for("main.connections"))
+        return redirect("/connections")
 
     data = resp.json()
     _save_connection(
@@ -390,7 +423,7 @@ def _connect_twitter():
     client_id = AppSetting.get("twitter_client_id")
     if not client_id:
         flash("Admin has not configured Twitter/X OAuth credentials.", "error")
-        return redirect(url_for("main.connections"))
+        return redirect("/connections")
 
     state = secrets.token_urlsafe(32)
     verifier, challenge = _generate_pkce()
@@ -431,7 +464,7 @@ def _callback_twitter():
     )
     if not resp.ok:
         flash("Failed to exchange Twitter authorization code.", "error")
-        return redirect(url_for("main.connections"))
+        return redirect("/connections")
 
     data = resp.json()
     _save_connection(

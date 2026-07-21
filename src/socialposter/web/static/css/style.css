@@ -1,5 +1,5 @@
 /* ===================================================================
-   SocialPoster – Modern Web UI Stylesheet
+   Kryptams – Modern Web UI Stylesheet
    =================================================================== */
 
 /* ─── Reset & Base ─── */
@@ -61,7 +61,7 @@ body {
   height: 60px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: space-between;
 }
 .logo {
   display: flex;
@@ -70,9 +70,8 @@ body {
   font-size: 1.15rem;
   font-weight: 700;
   color: var(--text);
-  flex-shrink: 0;
 }
-.topbar-actions { display: flex; gap: 10px; flex-shrink: 0; margin-left: auto; }
+.topbar-actions { display: flex; gap: 10px; }
 
 /* ─── Buttons ─── */
 .btn {
@@ -96,13 +95,15 @@ body {
   box-shadow: 0 1px 2px rgba(99,102,241,.3);
 }
 .btn-primary:hover { background: var(--primary-hover); }
-.btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+.btn-primary:disabled { opacity: .5; cursor: not-allowed; box-shadow: none; }
 .btn-outline {
   background: var(--surface);
   color: var(--text);
   border: 1px solid var(--border);
 }
 .btn-outline:hover { border-color: var(--primary); color: var(--primary); }
+.btn-outline:disabled { opacity: .5; cursor: not-allowed; }
+.btn-outline:disabled:hover { border-color: var(--border); color: var(--text); }
 .btn-sm { padding: 5px 12px; font-size: .8rem; }
 .btn-danger { background: var(--danger); color: #fff; }
 .btn-danger:hover { background: #dc2626; }
@@ -129,6 +130,107 @@ body {
 }
 @media (max-width: 1024px) {
   .app-layout { grid-template-columns: 1fr; }
+}
+
+/* ─── First-run Welcome Banner ─── */
+.welcome-banner {
+  position: relative;
+  margin: 0 0 16px;
+  padding: 14px 44px 14px 16px;
+  background: var(--primary-light);
+  border: 1px solid var(--primary);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: .88rem;
+  line-height: 1.5;
+}
+.welcome-banner-body strong { display: block; margin-bottom: 2px; }
+.welcome-banner-body em { font-style: normal; font-weight: 600; color: var(--primary); }
+.welcome-banner-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.welcome-banner-close:hover { background: rgba(99,102,241,.08); color: var(--text); }
+
+/* ─── Compose Progress Strip ─── */
+.compose-steps {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.compose-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: .85rem;
+  white-space: nowrap;
+}
+.compose-step:not(:last-child) { flex: 1; }
+.compose-step:not(:last-child)::after {
+  content: "";
+  flex: 1;
+  height: 2px;
+  background: var(--border);
+  margin-left: 10px;
+  border-radius: 1px;
+  transition: background .25s ease;
+}
+.step-marker {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: var(--surface);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: .78rem;
+  font-weight: 600;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: background .25s ease, border-color .25s ease, color .25s ease;
+}
+.step-check { display: none; }
+.compose-step.done { color: var(--text); }
+.compose-step.done .step-marker {
+  background: var(--success);
+  border-color: var(--success);
+  color: #fff;
+}
+.compose-step.done .step-num { display: none; }
+.compose-step.done .step-check { display: inline-block; }
+.compose-step.done:not(:last-child)::after { background: var(--success); }
+.compose-step.current { color: var(--primary); }
+.compose-step.current .step-marker {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-light);
+}
+@media (max-width: 600px) {
+  .compose-steps { padding: 10px 12px; gap: 4px; }
+  .step-label { display: none; }
+  .compose-step:not(:last-child)::after { margin-left: 6px; }
+  .step-marker { width: 24px; height: 24px; font-size: .72rem; }
 }
 
 /* ─── Cards ─── */
@@ -681,12 +783,11 @@ body {
 .alert-info { background: var(--primary-light); color: #3730a3; border: 1px solid #c7d2fe; }
 
 /* ─── Topbar Nav ─── */
-.topbar-nav { display: flex; gap: 6px; overflow-x: auto; flex: 1 1 0; min-width: 0; }
+.topbar-nav { display: flex; gap: 6px; margin-right: 16px; }
 .topbar-nav a {
   padding: 6px 14px;
   border-radius: 6px;
   font-size: .85rem;
-  white-space: nowrap;
   font-weight: 500;
   color: var(--text-secondary);
   text-decoration: none;
@@ -886,6 +987,16 @@ body {
   padding: 8px 12px;
 }
 .bottom-bar-publish:hover { background: var(--primary-hover); }
+.bottom-bar-publish:disabled,
+.bottom-bar-publish[aria-disabled="true"] {
+  opacity: .5;
+  cursor: not-allowed;
+  background: var(--primary);
+}
+.bottom-bar-publish:disabled:hover,
+.bottom-bar-publish[aria-disabled="true"]:hover {
+  background: var(--primary);
+}
 
 /* ─── Pull-to-Refresh Indicator ─── */
 .pull-to-refresh-indicator {
@@ -946,9 +1057,6 @@ body {
     padding: 8px;
     gap: 2px;
     z-index: 99;
-    max-height: calc(100vh - 60px - 80px);
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
   }
   .topbar-nav.open { display: flex; }
   .topbar-nav a {
@@ -1014,6 +1122,16 @@ body {
 }
 
 /* ─── AI Toolbar ─── */
+.ai-hint {
+  margin: 0 0 8px;
+  font-size: .8rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+.ai-hint strong {
+  color: var(--text);
+  font-weight: 600;
+}
 .ai-toolbar {
   display: flex;
   gap: 8px;

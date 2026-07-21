@@ -1,4 +1,9 @@
-"""Background scheduler – executes due ScheduledPost rows on a recurring basis."""
+"""Background scheduler – claims due ScheduledPost rows and dispatches work.
+
+When ``REDIS_URL`` is configured, due rows are dispatched as RQ jobs. Without
+Redis, the scheduler falls back to in-process execution (preserving local-dev
+behavior without requiring Redis).
+"""
 
 from __future__ import annotations
 
@@ -17,9 +22,13 @@ from socialposter.core.content import (
     WhatsAppOverride,
     YouTubeOverride,
 )
-from socialposter.core.publisher import _publish_one, _resolve_platforms
 
 logger = logging.getLogger("socialposter")
+
+
+# Don't re-enqueue comment fetches while a previous round may still be in flight.
+# Must comfortably exceed worker drain time for a single comment fetch.
+COMMENT_FETCH_COOLDOWN = timedelta(minutes=4)
 
 
 def _build_post_file(sched) -> PostFile:
@@ -56,211 +65,139 @@ def _build_post_file(sched) -> PostFile:
     return PostFile(defaults=defaults, platforms=PlatformOverrides(**overrides_kwargs))
 
 
+def _claim_due_posts(now: datetime) -> list:
+    """Optimistically claim due schedules by advancing ``next_run_at``.
+
+    The atomic UPDATE protects against duplicate dispatch when multiple
+    gunicorn workers run the scheduler in parallel.
+    """
+    from socialposter.web.models import ScheduledPost, db
+
+    due = ScheduledPost.query.filter(
+        ScheduledPost.enabled == True,  # noqa: E712
+        ScheduledPost.next_run_at <= now,
+    ).all()
+
+    claimed = []
+    for sched in due:
+        original = sched.next_run_at
+        new_next_run = now + timedelta(minutes=sched.interval_minutes)
+        rows_affected = ScheduledPost.query.filter(
+            ScheduledPost.id == sched.id,
+            ScheduledPost.next_run_at == original,
+            ScheduledPost.enabled == True,  # noqa: E712
+        ).update(
+            {"next_run_at": new_next_run},
+            synchronize_session=False,
+        )
+        if rows_affected == 1:
+            db.session.commit()
+            claimed.append(sched)
+        else:
+            db.session.rollback()
+    return claimed
+
+
 def _execute_due_posts(app):
     """Called by APScheduler every 30 seconds inside the Flask app context."""
     with app.app_context():
-        from socialposter.web.models import ScheduledPost, ScheduleLog, db
+        from socialposter.core import queue as task_queue
+        from socialposter.core.jobs import publish_scheduled_post
 
         now = datetime.now(timezone.utc)
-        due = ScheduledPost.query.filter(
-            ScheduledPost.enabled == True,  # noqa: E712
-            ScheduledPost.next_run_at <= now,
+        claimed = _claim_due_posts(now)
+
+        if not claimed:
+            return
+
+        if task_queue.is_enabled():
+            for sched in claimed:
+                for platform_name in sched.platforms:
+                    try:
+                        task_queue.enqueue(
+                            publish_scheduled_post, sched.id, platform_name
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Failed to enqueue publish job for schedule %d (%s)",
+                            sched.id, platform_name,
+                        )
+            logger.info(
+                "Dispatched %d schedule(s) for execution", len(claimed)
+            )
+        else:
+            for sched in claimed:
+                for platform_name in sched.platforms:
+                    try:
+                        publish_scheduled_post(sched.id, platform_name)
+                    except Exception:
+                        logger.exception(
+                            "Inline publish failed for schedule %d (%s)",
+                            sched.id, platform_name,
+                        )
+
+
+def _dispatch_comment_fetches(app):
+    """Called every 5 minutes — enqueue (or run inline) comment fetches."""
+    with app.app_context():
+        from socialposter.core import queue as task_queue
+        from socialposter.core.jobs import fetch_post_comments
+        from socialposter.web.models import PublishedPost
+
+        cutoff = datetime.now(timezone.utc) - COMMENT_FETCH_COOLDOWN
+        posts = PublishedPost.query.filter(
+            (PublishedPost.last_comment_fetch == None)  # noqa: E711
+            | (PublishedPost.last_comment_fetch <= cutoff)
         ).all()
 
-        for sched in due:
-            try:
-                content = _build_post_file(sched)
-                platforms = _resolve_platforms(content, sched.platforms)
+        if not posts:
+            return
 
-                results = []
-                for platform in platforms:
-                    try:
-                        result = _publish_one(platform, content, dry_run=False, user_id=sched.user_id)
-                        results.append({
-                            "platform": result.platform,
-                            "success": result.success,
-                            "post_id": result.post_id,
-                            "post_url": result.post_url,
-                            "error": result.error_message,
-                        })
-                        # Record post history
-                        from socialposter.web.models import record_post_history, PublishedPost, TeamMember
-                        record_post_history(
-                            user_id=sched.user_id,
-                            platform=result.platform,
-                            text=sched.text,
-                            success=result.success,
-                            schedule_id=sched.id,
-                            media=sched.media,
-                            post_id=result.post_id,
-                            post_url=result.post_url,
-                            error_message=result.error_message,
-                        )
-                        # Dispatch webhook event
-                        try:
-                            from socialposter.core.webhook_dispatcher import dispatch_event
-                            evt = "post.published" if result.success else "post.failed"
-                            dispatch_event(app, evt, {
-                                "platform": result.platform,
-                                "post_id": result.post_id,
-                                "post_url": result.post_url,
-                                "text": sched.text[:300] if sched.text else "",
-                                "error": result.error_message,
-                            }, user_id=sched.user_id)
-                        except Exception:
-                            logger.debug("Webhook dispatch failed", exc_info=True)
-                        # Track published post for inbox
-                        if result.success and result.post_id:
-                            try:
-                                tm = TeamMember.query.filter_by(user_id=sched.user_id).first()
-                                pp = PublishedPost(
-                                    team_id=tm.team_id if tm else None,
-                                    user_id=sched.user_id,
-                                    platform=result.platform,
-                                    platform_post_id=result.post_id or "",
-                                    platform_post_url=result.post_url or "",
-                                    text_preview=sched.text[:300] if sched.text else "",
-                                )
-                                db.session.add(pp)
-                                db.session.commit()
-                            except Exception:
-                                db.session.rollback()
-                    except Exception as e:
-                        results.append({
-                            "platform": platform.name,
-                            "success": False,
-                            "post_id": None,
-                            "post_url": None,
-                            "error": str(e),
-                        })
-
-                db.session.add(ScheduleLog(schedule_id=sched.id, results=results))
-                sched.next_run_at = now + timedelta(minutes=sched.interval_minutes)
-                db.session.commit()
-                logger.info("Executed schedule %d (%s)", sched.id, sched.name)
-            except Exception:
-                db.session.rollback()
-                logger.exception("Failed to execute schedule %d", sched.id)
-
-
-def _fetch_comments(app):
-    """Called by APScheduler every 5 minutes to fetch new comments from platforms."""
-    with app.app_context():
-        from socialposter.web.models import PublishedPost, InboxComment, TeamMember, db
-        from socialposter.platforms.registry import PlatformRegistry
-
-        now = datetime.now(timezone.utc)
-        posts = PublishedPost.query.all()
-
-        for post in posts:
-            try:
-                registry = PlatformRegistry.all()
-                platform_cls = registry.get(post.platform)
-                if not platform_cls:
-                    continue
-                platform_instance = platform_cls()
-                if not platform_instance.supports_comment_fetching():
-                    continue
-
-                since = post.last_comment_fetch
-                comments = platform_instance.fetch_comments(
-                    post.user_id, post.platform_post_id, since=since
-                )
-
-                for c in comments:
-                    existing = InboxComment.query.filter_by(
-                        platform=post.platform,
-                        platform_comment_id=c.get("comment_id", ""),
-                    ).first()
-                    if existing:
-                        continue
-                    ic = InboxComment(
-                        team_id=post.team_id,
-                        platform=post.platform,
-                        platform_comment_id=c.get("comment_id", ""),
-                        platform_post_id=post.platform_post_id,
-                        platform_post_url=post.platform_post_url,
-                        author_name=c.get("author_name", ""),
-                        author_profile_url=c.get("author_profile_url", ""),
-                        author_avatar_url=c.get("author_avatar_url", ""),
-                        text=c.get("text", ""),
-                        parent_comment_id=c.get("parent_comment_id"),
-                        posted_at=c.get("posted_at"),
+        if task_queue.is_enabled():
+            for post in posts:
+                try:
+                    task_queue.enqueue(fetch_post_comments, post.id)
+                except Exception:
+                    logger.exception(
+                        "Failed to enqueue comment fetch for post %d", post.id
                     )
-                    db.session.add(ic)
-
-                # Dispatch webhook for new comments
-                if comments:
-                    try:
-                        from socialposter.core.webhook_dispatcher import dispatch_event
-                        dispatch_event(app, "comment.received", {
-                            "platform": post.platform,
-                            "post_id": post.platform_post_id,
-                            "comment_count": len(comments),
-                        }, user_id=post.user_id)
-                    except Exception:
-                        logger.debug("Webhook dispatch failed", exc_info=True)
-
-                post.last_comment_fetch = now
-                db.session.commit()
-            except Exception:
-                db.session.rollback()
-                logger.exception(
-                    "Failed to fetch comments for post %d (%s)", post.id, post.platform
-                )
+        else:
+            for post in posts:
+                try:
+                    fetch_post_comments(post.id)
+                except Exception:
+                    logger.exception(
+                        "Inline comment fetch failed for post %d", post.id
+                    )
 
 
-def _fetch_engagement_metrics(app):
-    """Called by APScheduler every 30 minutes to fetch engagement metrics."""
+def _dispatch_engagement_fetches(app):
+    """Called every 30 minutes — enqueue (or run inline) engagement fetches."""
     with app.app_context():
-        from socialposter.web.models import PublishedPost, EngagementMetric, db
-        from socialposter.platforms.registry import PlatformRegistry
+        from socialposter.core import queue as task_queue
+        from socialposter.core.jobs import fetch_post_engagement
+        from socialposter.web.models import PublishedPost
 
         posts = PublishedPost.query.all()
+        if not posts:
+            return
 
-        for post in posts:
-            try:
-                registry = PlatformRegistry.all()
-                platform_cls = registry.get(post.platform)
-                if not platform_cls:
-                    continue
-                platform_instance = platform_cls()
-                if not platform_instance.supports_engagement_fetching():
-                    continue
-
-                metrics = platform_instance.fetch_engagement(
-                    post.user_id, post.platform_post_id
-                )
-                if not metrics:
-                    continue
-
-                total = (
-                    metrics.get("likes", 0)
-                    + metrics.get("comments", 0)
-                    + metrics.get("shares", 0)
-                )
-                views = metrics.get("views", 0)
-                rate = round((total / views * 100) if views else 0.0, 2)
-
-                em = EngagementMetric(
-                    user_id=post.user_id,
-                    published_post_id=post.id,
-                    platform=post.platform,
-                    likes=metrics.get("likes", 0),
-                    comments=metrics.get("comments", 0),
-                    shares=metrics.get("shares", 0),
-                    views=views,
-                    clicks=metrics.get("clicks", 0),
-                    engagement_rate=rate,
-                )
-                db.session.add(em)
-                db.session.commit()
-            except Exception:
-                db.session.rollback()
-                logger.exception(
-                    "Failed to fetch engagement for post %d (%s)",
-                    post.id, post.platform,
-                )
+        if task_queue.is_enabled():
+            for post in posts:
+                try:
+                    task_queue.enqueue(fetch_post_engagement, post.id)
+                except Exception:
+                    logger.exception(
+                        "Failed to enqueue engagement fetch for post %d", post.id
+                    )
+        else:
+            for post in posts:
+                try:
+                    fetch_post_engagement(post.id)
+                except Exception:
+                    logger.exception(
+                        "Inline engagement fetch failed for post %d", post.id
+                    )
 
 
 def init_scheduler(app):
@@ -272,10 +209,10 @@ def init_scheduler(app):
         _execute_due_posts, "interval", seconds=30, args=[app], id="due_posts_check"
     )
     scheduler.add_job(
-        _fetch_comments, "interval", minutes=5, args=[app], id="comment_fetch"
+        _dispatch_comment_fetches, "interval", minutes=5, args=[app], id="comment_fetch",
     )
     scheduler.add_job(
-        _fetch_engagement_metrics, "interval", minutes=30, args=[app], id="engagement_fetch"
+        _dispatch_engagement_fetches, "interval", minutes=30, args=[app], id="engagement_fetch",
     )
 
     from socialposter.core.automation_engine import evaluate_rules
@@ -283,10 +220,11 @@ def init_scheduler(app):
         evaluate_rules, "interval", minutes=10, args=[app], id="automation_rules"
     )
 
-    from socialposter.core.competitor_service import fetch_all_competitors
-    scheduler.add_job(
-        fetch_all_competitors, "interval", hours=2, args=[app], id="competitor_fetch"
-    )
-
     scheduler.start()
-    logger.info("Background scheduler started (30s posts, 5min comments, 30min engagement, 10min automation, 2h competitors)")
+
+    from socialposter.core import queue as task_queue
+    backend = "queue" if task_queue.is_enabled() else "inline"
+    logger.info(
+        "Background scheduler started (backend=%s, 30s posts / 5min comments / 30min engagement / 10min automation)",
+        backend,
+    )

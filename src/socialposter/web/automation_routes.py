@@ -12,11 +12,7 @@ from socialposter.web.token_auth import token_or_session_required
 automation_bp = Blueprint("automation", __name__)
 
 
-@automation_bp.route("/automation")
-@login_required
-def automation_page():
-    """Serve the automation rules UI."""
-    return render_template("automation.html")
+# /automation Jinja page removed — React SPA owns it.
 
 
 @automation_bp.route("/api/automation/rules", methods=["GET"])
@@ -61,7 +57,7 @@ def api_rules_create():
         return jsonify({"error": "At least one action is required"}), 400
 
     # Validate actions
-    valid_action_types = {"repost", "ai_generate", "notify", "webhook"}
+    valid_action_types = {"repost", "ai_generate", "notify"}
     for a in actions:
         if a.get("type") not in valid_action_types:
             return jsonify({"error": f"Invalid action type: {a.get('type')}"}), 400

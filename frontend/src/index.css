@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* LinkedIn-style — warm beige-grey canvas (LinkedIn's signature page bg),
+       white card surfaces, deep slate text, LinkedIn-blue primary (#0A66C2). */
+    --background: 40 25% 96%;
+    --foreground: 220 14% 13%;
+
+    --muted: 40 18% 92%;
+    --muted-foreground: 220 9% 38%;
+
+    /* Hover/accent: light blue wash so interactive states feel native. */
+    --accent: 211 100% 96%;
+    --accent-foreground: 211 90% 30%;
+
+    /* LinkedIn brand blue. */
+    --primary: 211 90% 40%;
+    --primary-foreground: 0 0% 100%;
+
+    --border: 220 13% 88%;
+    --input: 220 13% 88%;
+    --ring: 211 90% 40%;
+
+    /* Sidebar is pure white (cards & nav stand out from the beige canvas). */
+    --sidebar: 0 0% 100%;
+    --sidebar-foreground: 220 13% 28%;
+    --sidebar-border: 220 13% 90%;
+    --sidebar-accent: 211 100% 96%;
+
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    /* LinkedIn dark — near-black canvas, brighter blue for contrast. */
+    --background: 220 15% 8%;
+    --foreground: 0 0% 96%;
+
+    --muted: 220 14% 14%;
+    --muted-foreground: 220 8% 65%;
+
+    --accent: 211 50% 18%;
+    --accent-foreground: 0 0% 96%;
+
+    --primary: 211 100% 60%;
+    --primary-foreground: 220 15% 8%;
+
+    --border: 220 14% 18%;
+    --input: 220 14% 18%;
+    --ring: 211 100% 60%;
+
+    --sidebar: 220 15% 6%;
+    --sidebar-foreground: 220 8% 78%;
+    --sidebar-border: 220 14% 14%;
+    --sidebar-accent: 211 50% 16%;
+  }
+
+  body {
+    /* Flat canvas — LinkedIn doesn't use ambient gradients. */
+    background: hsl(var(--background));
+  }
+
+  * {
+    @apply border-border;
+  }
+}

@@ -33,45 +33,11 @@ AI_KEYS = [
 def require_admin():
     if not current_user.is_admin:
         flash("Admin access required.", "error")
-        return redirect(url_for("main.index"))
+        return redirect("/")
 
 
-@admin_bp.route("/settings", methods=["GET", "POST"])
-def settings():
-    if request.method == "POST":
-        for key, _label, _hint in OAUTH_KEYS:
-            value = request.form.get(key, "").strip()
-            if value:
-                AppSetting.set(key, value)
-        # AI settings — always save ai_provider (even if default)
-        for key, _label, _hint in AI_KEYS:
-            value = request.form.get(key, "").strip()
-            if key == "ai_provider":
-                AppSetting.set(key, value or "claude")
-            elif value:
-                AppSetting.set(key, value)
-        flash("Settings saved.", "success")
-        return redirect(url_for("admin.settings"))
-
-    current_values = {}
-    for key, label, hint in OAUTH_KEYS:
-        val = AppSetting.get(key)
-        current_values[key] = {
-            "label": label,
-            "hint": hint,
-            "value": val,
-            "masked": _mask(val) if val else "",
-        }
-    for key, label, hint in AI_KEYS:
-        val = AppSetting.get(key)
-        current_values[key] = {
-            "label": label,
-            "hint": hint,
-            "value": val,
-            "masked": _mask(val) if val and key != "ai_provider" else val,
-        }
-
-    return render_template("admin.html", settings=current_values, keys=OAUTH_KEYS, ai_keys=AI_KEYS)
+# /admin/settings Jinja form removed — React SPA owns /admin via the JSON
+# endpoints in app.py (/api/admin/settings GET/PUT).
 
 
 @admin_bp.route("/api/ai-providers", methods=["GET"])
@@ -145,37 +111,3 @@ def _mask(value: str) -> str:
     if len(value) <= 6:
         return "*" * len(value)
     return value[:3] + "*" * (len(value) - 6) + value[-3:]
-
-
-@admin_bp.route("/debug/database", methods=["GET"])
-def debug_database():
-    """Debug route to show database schema information."""
-    import sqlalchemy
-    from sqlalchemy import inspect
-    
-    info = {
-        "database_url": str(db.engine.url).split("@")[0] + "@***",  # Hide credentials
-        "dialect": db.engine.dialect.name,
-    }
-    
-    # Get table and column information
-    inspector = inspect(db.engine)
-    info["tables"] = {}
-    
-    for table_name in inspector.get_table_names():
-        columns = inspector.get_columns(table_name)
-        info["tables"][table_name] = {}
-        
-        for col in columns:
-            col_type = str(col["type"])
-            col_length = getattr(col["type"], "length", None)
-            info["tables"][table_name][col["name"]] = {
-                "type": col_type,
-                "length": col_length,
-                "nullable": col.get("nullable", True),
-            }
-    
-    return jsonify({
-        "database": info,
-        "warning": "This is debug information. Ensure this is only accessible to admins."
-    })

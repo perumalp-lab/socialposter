@@ -19,6 +19,7 @@ from socialposter.web.models import (
     DraftComment,
     DraftPost,
     db,
+    log_activity,
     record_post_history,
 )
 from socialposter.web.permissions import role_required, team_required
@@ -26,19 +27,8 @@ from socialposter.web.permissions import role_required, team_required
 draft_bp = Blueprint("drafts", __name__)
 
 
-@draft_bp.route("/drafts")
-@login_required
-@team_required
-def drafts_page():
-    return render_template("drafts.html")
-
-
-@draft_bp.route("/drafts/<int:draft_id>")
-@login_required
-@team_required
-def draft_detail_page(draft_id: int):
-    draft = DraftPost.query.filter_by(id=draft_id, team_id=g.team.id).first_or_404()
-    return render_template("draft_detail.html", draft=draft)
+# Old /drafts and /drafts/<id> Jinja pages removed — the React SPA owns those
+# paths now. JSON CRUD endpoints below are unchanged.
 
 
 # ── CRUD ──
@@ -62,7 +52,125 @@ def create_draft():
     )
     db.session.add(draft)
     db.session.commit()
+    log_activity(
+        current_user.id,
+        "draft.create",
+        target_type="draft",
+        target_id=draft.id,
+        details={"name": draft.name, "platforms": draft.platforms},
+    )
     return jsonify({"ok": True, "id": draft.id}), 201
+
+
+@draft_bp.route("/api/drafts/bulk-import", methods=["POST"])
+@login_required
+@team_required
+@role_required("admin", "editor")
+def bulk_import_drafts():
+    """Import multiple draft posts from a CSV upload.
+
+    Expected columns (header required, order flexible):
+      name, platforms, text, status
+
+    `platforms` is comma-separated within the cell (quote the cell in CSV).
+    `status` is optional and defaults to "draft"; allowed: draft, pending_approval.
+    """
+    import csv
+    import io
+
+    upload = request.files.get("file")
+    if upload is None or not upload.filename:
+        return jsonify({"error": "No file uploaded (field name 'file')"}), 400
+
+    raw = upload.read()
+    if not raw:
+        return jsonify({"error": "File is empty"}), 400
+
+    # Decode tolerantly — UTF-8 with BOM is common from Excel.
+    for encoding in ("utf-8-sig", "utf-8", "latin-1"):
+        try:
+            text = raw.decode(encoding)
+            break
+        except UnicodeDecodeError:
+            continue
+    else:
+        return jsonify({"error": "Unable to decode file (try UTF-8)"}), 400
+
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames:
+        return jsonify({"error": "CSV has no header row"}), 400
+
+    headers = {h.strip().lower() for h in reader.fieldnames}
+    required = {"name", "platforms", "text"}
+    missing = required - headers
+    if missing:
+        return jsonify({
+            "error": f"CSV missing required columns: {', '.join(sorted(missing))}",
+        }), 400
+
+    allowed_status = {"draft", "pending_approval"}
+    created: list[dict] = []
+    errors: list[dict] = []
+
+    for idx, row in enumerate(reader, start=2):  # row 1 is the header
+        name = (row.get("name") or "").strip()
+        platforms_raw = (row.get("platforms") or "").strip()
+        text_val = (row.get("text") or "").strip()
+        status_val = (row.get("status") or "draft").strip().lower() or "draft"
+
+        if not name or not platforms_raw or not text_val:
+            errors.append({
+                "row": idx,
+                "error": "name, platforms, and text are required",
+            })
+            continue
+
+        if status_val not in allowed_status:
+            errors.append({
+                "row": idx,
+                "error": f"status must be one of {sorted(allowed_status)}",
+            })
+            continue
+
+        platforms = [p.strip() for p in platforms_raw.split(",") if p.strip()]
+        if not platforms:
+            errors.append({"row": idx, "error": "platforms is empty after parsing"})
+            continue
+
+        draft = DraftPost(
+            team_id=g.team.id,
+            author_id=current_user.id,
+            name=name[:200],
+            platforms=platforms,
+            text=text_val,
+            media=[],
+            overrides={},
+            status=status_val,
+        )
+        db.session.add(draft)
+        db.session.flush()
+        created.append({"row": idx, "id": draft.id, "name": draft.name})
+
+    db.session.commit()
+    if created:
+        log_activity(
+            current_user.id,
+            "draft.bulk_import",
+            target_type="draft",
+            target_id=None,
+            details={
+                "created_count": len(created),
+                "error_count": len(errors),
+            },
+        )
+
+    return jsonify({
+        "ok": True,
+        "created_count": len(created),
+        "error_count": len(errors),
+        "created": created,
+        "errors": errors,
+    })
 
 
 @draft_bp.route("/api/drafts", methods=["GET"])
@@ -153,8 +261,16 @@ def update_draft(draft_id: int):
 @role_required("admin", "editor")
 def delete_draft(draft_id: int):
     d = DraftPost.query.filter_by(id=draft_id, team_id=g.team.id).first_or_404()
+    name = d.name
     db.session.delete(d)
     db.session.commit()
+    log_activity(
+        current_user.id,
+        "draft.delete",
+        target_type="draft",
+        target_id=draft_id,
+        details={"name": name},
+    )
     return jsonify({"ok": True})
 
 
@@ -171,6 +287,13 @@ def submit_draft(draft_id: int):
         return jsonify({"error": "Only drafts or rejected posts can be submitted"}), 400
     d.status = "pending_approval"
     db.session.commit()
+    log_activity(
+        current_user.id,
+        "draft.submit",
+        target_type="draft",
+        target_id=d.id,
+        details={"name": d.name},
+    )
     return jsonify({"ok": True, "status": d.status})
 
 
@@ -188,6 +311,13 @@ def approve_draft(draft_id: int):
     data = request.get_json(force=True) or {}
     d.review_comment = data.get("comment", "")
     db.session.commit()
+    log_activity(
+        current_user.id,
+        "draft.approve",
+        target_type="draft",
+        target_id=d.id,
+        details={"name": d.name},
+    )
     return jsonify({"ok": True, "status": d.status})
 
 
@@ -205,6 +335,13 @@ def reject_draft(draft_id: int):
     d.reviewed_at = datetime.now(timezone.utc)
     d.review_comment = data.get("comment", "Rejected")
     db.session.commit()
+    log_activity(
+        current_user.id,
+        "draft.reject",
+        target_type="draft",
+        target_id=d.id,
+        details={"name": d.name, "comment": d.review_comment},
+    )
     return jsonify({"ok": True, "status": d.status})
 
 
@@ -268,6 +405,19 @@ def publish_draft(draft_id: int):
 
     d.status = "published"
     db.session.commit()
+    succeeded = sum(1 for r in results if r["success"])
+    log_activity(
+        current_user.id,
+        "draft.publish",
+        target_type="draft",
+        target_id=d.id,
+        details={
+            "name": d.name,
+            "platforms": d.platforms,
+            "succeeded": succeeded,
+            "total": len(results),
+        },
+    )
     return jsonify({"ok": True, "results": results})
 
 

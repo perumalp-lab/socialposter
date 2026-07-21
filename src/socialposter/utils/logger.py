@@ -1,4 +1,4 @@
-"""Structured logging setup for SocialPoster."""
+"""Structured logging setup for Kryptams."""
 
 from __future__ import annotations
 

@@ -11,9 +11,8 @@ Write your content in a YAML file, run `socialposter post content.yaml`, and it 
 cd socialposter
 pip install -e .
 
-# Configure a platform (interactive)
-socialposter config set linkedin
-socialposter config set twitter
+# Start the server and connect platforms via the web UI at http://localhost:5000
+socialposter serve
 
 # Write your content
 cp templates/sample_post.yaml my_post.yaml
@@ -34,10 +33,11 @@ socialposter post my_post.yaml
 | `socialposter post <file> --dry-run` | Validate without publishing |
 | `socialposter post <file> --platforms linkedin,twitter` | Post to specific platforms |
 | `socialposter validate <file>` | Check content file for errors |
-| `socialposter config set <platform>` | Interactive credential setup |
-| `socialposter config list` | Show all platform status |
-| `socialposter config test` | Test connectivity |
 | `socialposter platforms` | List available plugins |
+| `socialposter serve` | Launch the web UI (default command) |
+| `socialposter db upgrade` | Run pending database migrations |
+| `socialposter db downgrade` | Revert the last migration |
+| `socialposter worker` | Start an RQ worker for scheduled jobs |
 | `socialposter --version` | Show version |
 
 ## Content File Format (YAML)
@@ -91,56 +91,56 @@ platforms:
 ### LinkedIn
 1. Create app at https://developer.linkedin.com/
 2. Request Community Management API access
-3. Set redirect URL: `http://127.0.0.1:8585/callback`
-4. Run: `socialposter config set linkedin`
+3. Set redirect URL to `http://localhost:5000/oauth/linkedin/callback` (adjust host/port to match your deployment)
+4. An admin sets `linkedin_client_id` and `linkedin_client_secret` in the web UI's admin settings
+5. Users connect their LinkedIn account via the web UI at `/connections`
 
 ### X (Twitter)
 1. Create app at https://developer.x.com/
-2. Generate Consumer Keys + Access Tokens
-3. Ensure Read+Write permissions
-4. Run: `socialposter config set twitter`
+2. Generate OAuth 2.0 Client ID and Client Secret
+3. Enable OAuth 2.0 with PKCE; set redirect URL to your server
+4. Ensure Read+Write permissions
+5. An admin sets `twitter_client_id` and `twitter_client_secret` in the admin settings
+6. Users connect via the web UI at `/connections`
 
 ### Facebook
 1. Create app at https://developers.facebook.com/
-2. Get Page Access Token via Graph API Explorer
-3. Required: `pages_manage_posts` permission (requires App Review)
-4. Run: `socialposter config set facebook`
+2. An admin sets `meta_client_id` and `meta_client_secret` in the admin settings
+3. Users connect via the web UI (handles Facebook, Instagram, and WhatsApp in one OAuth flow)
 
 ### YouTube
 1. Create project at https://console.cloud.google.com/
 2. Enable YouTube Data API v3
-3. Create OAuth 2.0 credentials (Desktop app)
-4. Download `client_secrets.json`
-5. Run: `socialposter config set youtube`
+3. Create OAuth 2.0 credentials (Web application)
+4. An admin sets `google_client_id` and `google_client_secret` in the admin settings
+5. Users connect via the web UI at `/connections`
 
 ### Instagram
 1. Convert to Business Account connected to a Facebook Page
-2. Create Meta app with `instagram_content_publish` permission
-3. Get long-lived access token
-4. Run: `socialposter config set instagram`
-5. Set `business_account_id` in `~/.socialposter/config.yaml`
+2. No separate setup — Instagram is connected as part of the Meta OAuth flow (Facebook page)
+3. The `business_account_id` is discovered automatically during OAuth
 
 ### WhatsApp
 1. Set up WhatsApp Business on Meta Developer portal
-2. Get System User Access Token
-3. Run: `socialposter config set whatsapp`
-4. Set `phone_number_id` in `~/.socialposter/config.yaml`
+2. No separate setup — WhatsApp is connected as part of the Meta OAuth flow
+3. An admin sets the `phone_number_id` in the admin settings if needed
 
 ## Architecture
 
 ```
 src/socialposter/
-├── cli/            # Typer commands (post, config, validate)
-├── core/           # Content parser, config, credentials, publisher
+├── cli.py          # Click commands (serve, post, validate, platforms, db, worker)
+├── core/           # Content parser, publisher, media, scheduler, AI service, plans
 ├── platforms/      # Plugin for each platform (LinkedIn, X, etc.)
-└── utils/          # OAuth helper, retry, logging
+├── web/            # Flask web app (routes, templates, models, OAuth, admin)
+└── utils/          # Logger, retry, crypto, datetime helpers, pagination
 ```
 
 **Key design patterns:**
 - **Plugin architecture** – Each platform is a self-contained class registered via decorator
 - **Content merging** – Defaults + per-platform overrides in a single YAML file
 - **Parallel publishing** – Platforms are posted to concurrently via ThreadPoolExecutor
-- **Secure credentials** – OS keyring (Windows Credential Locker) with env var fallback
+- **Secure credentials** – OAuth tokens encrypted at rest (Fernet) with DB storage and env var fallback
 
 ## Platform Limits
 

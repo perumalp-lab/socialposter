@@ -33,9 +33,9 @@ def _resolve_platforms(
     enabled = content.enabled_platforms()
 
     if filter_names:
-        # Only keep platforms that are both requested AND enabled in content
+        # When --platforms is specified, use all requested platforms
+        # (they will use the content file's defaults if not overridden)
         names = [n.strip().lower() for n in filter_names]
-        # Allow even if not in content — just use defaults
         target_names = names
     else:
         target_names = enabled
