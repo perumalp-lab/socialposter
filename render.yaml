@@ -8,16 +8,8 @@ services:
   - type: web
     name: socialposter
     runtime: python
-    buildCommand: |
-      cd frontend && npm ci && npm run build && cd ..
-      mkdir -p src/socialposter/web/static/spa
-      cp -r frontend/dist/* src/socialposter/web/static/spa/
-      echo "SPA files before pip install:"
-      find src/socialposter/web/static/spa -type f | head -20
-      pip install --no-cache-dir --force-reinstall .
-      echo "SPA files in installed package:"
-      python -c "from pathlib import Path; import socialposter.web.app as m; p=Path(m.__file__).resolve().parent/'static'/'spa'; print('EXISTS' if (p/'index.html').exists() else 'MISSING'); [print(f) for f in p.rglob('*') if f.is_file()]" 2>&1 || echo "DIAGNOSTIC FAILED"
-    startCommand: bash start.sh
+    buildCommand: pip install .
+    startCommand: gunicorn "socialposter.web.app:create_app()" --bind 0.0.0.0:$PORT --workers 1
     envVars:
       - key: WEB_CONCURRENCY
         value: "1"
