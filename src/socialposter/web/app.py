@@ -665,55 +665,63 @@ def create_app(test_config: dict | None = None) -> Flask:
     def _handle_plan_limit(exc: PlanLimitExceeded):
         return jsonify(exc.to_dict()), 402
 
-    # Create tables (idempotent — safe when multiple workers boot concurrently)
-    with app.app_context():
-        try:
-            db.create_all()
-        except Exception as exc:
-            app.logger.warning("db.create_all() skipped: %s", exc)
+    # Create tables and run auto-migrations.
+    # Wrapped in a broad try/except so that database issues never prevent
+    # the SPA from being registered (the app must at least serve the UI).
+    try:
+        with app.app_context():
+            try:
+                db.create_all()
+            except Exception as exc:
+                app.logger.warning("db.create_all() skipped: %s", exc)
 
-        # Auto-migration: add missing columns to existing tables
-        import sqlalchemy
-        with db.engine.connect() as conn:
-            inspector = sqlalchemy.inspect(db.engine)
-            if "users" in inspector.get_table_names():
-                cols = [c["name"] for c in inspector.get_columns("users")]
-                if "timezone" not in cols:
-                    conn.execute(sqlalchemy.text(
-                        "ALTER TABLE users ADD COLUMN timezone VARCHAR(50) NOT NULL DEFAULT 'UTC'"
+            # Auto-migration: add missing columns to existing tables
+            import sqlalchemy
+            with db.engine.connect() as conn:
+                inspector = sqlalchemy.inspect(db.engine)
+                if "users" in inspector.get_table_names():
+                    cols = [c["name"] for c in inspector.get_columns("users")]
+                    if "timezone" not in cols:
+                        conn.execute(sqlalchemy.text(
+                            "ALTER TABLE users ADD COLUMN timezone VARCHAR(50) NOT NULL DEFAULT 'UTC'"
+                        ))
+                        conn.commit()
+
+            # Auto-migration: ensure admin users have a default team
+            from socialposter.web.models import Team, TeamMember
+            admin_users = User.query.filter_by(is_admin=True).all()
+            for admin in admin_users:
+                if not TeamMember.query.filter_by(user_id=admin.id).first():
+                    existing_team = Team.query.first()
+                    if not existing_team:
+                        existing_team = Team(
+                            name="Default Team",
+                            slug="default-team",
+                            created_by=admin.id,
+                        )
+                        db.session.add(existing_team)
+                        db.session.flush()
+                    db.session.add(TeamMember(
+                        team_id=existing_team.id,
+                        user_id=admin.id,
+                        role="admin",
                     ))
-                    conn.commit()
-
-        # Auto-migration: ensure admin users have a default team
-        from socialposter.web.models import Team, TeamMember
-        admin_users = User.query.filter_by(is_admin=True).all()
-        for admin in admin_users:
-            if not TeamMember.query.filter_by(user_id=admin.id).first():
-                existing_team = Team.query.first()
-                if not existing_team:
-                    existing_team = Team(
-                        name="Default Team",
-                        slug="default-team",
-                        created_by=admin.id,
-                    )
-                    db.session.add(existing_team)
-                    db.session.flush()
-                db.session.add(TeamMember(
-                    team_id=existing_team.id,
-                    user_id=admin.id,
-                    role="admin",
-                ))
-        db.session.commit()
+            db.session.commit()
+    except Exception as exc:
+        print(f"[socialposter] DB init error (non-fatal): {exc}")
 
     # Start background scheduler (avoid double-start in Flask reloader, and
     # skip entirely in tests / worker processes).
-    if (
-        not app.config.get("TESTING")
-        and not os.environ.get("SOCIALPOSTER_SKIP_SCHEDULER")
-        and (not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true")
-    ):
-        from socialposter.core.scheduler import init_scheduler
-        init_scheduler(app)
+    try:
+        if (
+            not app.config.get("TESTING")
+            and not os.environ.get("SOCIALPOSTER_SKIP_SCHEDULER")
+            and (not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true")
+        ):
+            from socialposter.core.scheduler import init_scheduler
+            init_scheduler(app)
+    except Exception as exc:
+        print(f"[socialposter] Scheduler init error (non-fatal): {exc}")
 
     _register_spa(app)
 
@@ -733,19 +741,20 @@ def _register_spa(app: Flask) -> None:
     """
     me = Path(__file__).resolve()
     candidates = [
+        Path.cwd() / "frontend" / "dist",          # working directory = repo root (Render)
         me.parents[3] / "frontend" / "dist",       # editable install: src/socialposter/web/app.py -> repo root
         me.parents[2] / "frontend" / "dist",       # possible layout variant
         me.parents[1] / "frontend" / "dist",       # src/socialposter -> src/socialposter/frontend
-        Path.cwd() / "frontend" / "dist",          # working directory = repo root
         Path("/opt/render/project/src/frontend/dist"),
         Path("/opt/render/project/src/socialposter/frontend/dist"),
     ]
+    print(f"[socialposter] SPA candidates: {[str(c) + ' exists=' + str((c / 'index.html').exists()) for c in candidates]}")
     spa_dir = next((p for p in candidates if (p / "index.html").exists()), None)
     if spa_dir is None:
-        app.logger.warning("SPA build not found in any candidate: %s", [str(c) for c in candidates])
+        print("[socialposter] SPA build NOT found — Flask will return 404 for non-API paths.")
         return
 
-    app.logger.warning("Serving SPA from %s", spa_dir)
+    print(f"[socialposter] Serving SPA from {spa_dir}")
     index_html = (spa_dir / "index.html").read_text(encoding="utf-8")
 
     # Reserved prefixes that the SPA must NOT shadow.
