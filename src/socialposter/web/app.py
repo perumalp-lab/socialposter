@@ -528,6 +528,12 @@ def offline():
     return render_template("offline.html")
 
 
+@main_bp.route("/manifest.json")
+def manifest():
+    """Serve the web app manifest for PWA support."""
+    return send_from_directory(str(static_dir), "manifest.json", mimetype="application/manifest+json")
+
+
 # ---------------------------------------------------------------------------
 # App Factory
 # ---------------------------------------------------------------------------

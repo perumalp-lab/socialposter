@@ -40,6 +40,9 @@ self.addEventListener('activate', function(event) {
 self.addEventListener('fetch', function(event) {
   var url = new URL(event.request.url);
 
+  // Skip non-HTTP(S) requests (e.g. chrome-extension://)
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
+
   // Cache-first for static assets
   if (url.pathname.startsWith('/static/')) {
     event.respondWith(
