@@ -9,8 +9,10 @@ services:
     name: socialposter
     runtime: python
     buildCommand: |
-      pip install .
       cd frontend && npm ci && npm run build
+      mkdir -p src/socialposter/web/static/spa
+      cp -r frontend/dist/* src/socialposter/web/static/spa/
+      pip install .
     # Single worker: APScheduler runs in-process, so multiple workers would
     # fire each scheduled post once per worker. Stick with 1 until the
     # scheduler moves to a separate dyno or uses a DB-backed lock.
