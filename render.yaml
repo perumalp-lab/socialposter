@@ -12,19 +12,12 @@ services:
       cd frontend && npm ci && npm run build && cd ..
       mkdir -p src/socialposter/web/static/spa
       cp -r frontend/dist/* src/socialposter/web/static/spa/
-      pip install .
-    startCommand: |
-      SITE=$(python -c "import socialposter.web.app as m; from pathlib import Path; print(Path(m.__file__).resolve().parent)")
-      echo "Package web dir: $SITE"
-      echo "SPA exists before copy: $([ -f $SITE/static/spa/index.html ] && echo YES || echo NO)"
-      echo "frontend/dist exists: $([ -f frontend/dist/index.html ] && echo YES || echo NO)"
-      if [ ! -f "$SITE/static/spa/index.html" ] && [ -f "frontend/dist/index.html" ]; then
-        mkdir -p "$SITE/static/spa"
-        cp -r frontend/dist/* "$SITE/static/spa/"
-        echo "Copied SPA to $SITE/static/spa/"
-      fi
-      echo "SPA exists after copy: $([ -f $SITE/static/spa/index.html ] && echo YES || echo NO)"
-      exec gunicorn "socialposter.web.app:create_app()" --bind 0.0.0.0:$PORT --workers 1
+      echo "SPA files before pip install:"
+      find src/socialposter/web/static/spa -type f | head -20
+      pip install --no-cache-dir --force-reinstall .
+      echo "SPA files in installed package:"
+      python -c "from pathlib import Path; import socialposter.web.app as m; p=Path(m.__file__).resolve().parent/'static'/'spa'; print('EXISTS' if (p/'index.html').exists() else 'MISSING'); [print(f) for f in p.rglob('*') if f.is_file()]" 2>&1 || echo "DIAGNOSTIC FAILED"
+    startCommand: bash start.sh
     envVars:
       - key: WEB_CONCURRENCY
         value: "1"
