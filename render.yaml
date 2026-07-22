@@ -13,10 +13,18 @@ services:
       mkdir -p src/socialposter/web/static/spa
       cp -r frontend/dist/* src/socialposter/web/static/spa/
       pip install .
-    # Single worker: APScheduler runs in-process, so multiple workers would
-    # fire each scheduled post once per worker. Stick with 1 until the
-    # scheduler moves to a separate dyno or uses a DB-backed lock.
-    startCommand: gunicorn "socialposter.web.app:create_app()" --bind 0.0.0.0:$PORT --workers 1
+    startCommand: |
+      SITE=$(python -c "import socialposter.web.app as m; from pathlib import Path; print(Path(m.__file__).resolve().parent)")
+      echo "Package web dir: $SITE"
+      echo "SPA exists before copy: $([ -f $SITE/static/spa/index.html ] && echo YES || echo NO)"
+      echo "frontend/dist exists: $([ -f frontend/dist/index.html ] && echo YES || echo NO)"
+      if [ ! -f "$SITE/static/spa/index.html" ] && [ -f "frontend/dist/index.html" ]; then
+        mkdir -p "$SITE/static/spa"
+        cp -r frontend/dist/* "$SITE/static/spa/"
+        echo "Copied SPA to $SITE/static/spa/"
+      fi
+      echo "SPA exists after copy: $([ -f $SITE/static/spa/index.html ] && echo YES || echo NO)"
+      exec gunicorn "socialposter.web.app:create_app()" --bind 0.0.0.0:$PORT --workers 1
     envVars:
       - key: WEB_CONCURRENCY
         value: "1"
