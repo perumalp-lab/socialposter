@@ -558,7 +558,6 @@ function Section({
         {entries.map(([key, field]) => (
           <FieldRow
             key={key}
-            keyName={key}
             field={field}
             draft={drafts[key]}
             onChange={(v) => onChange(key, v)}
@@ -570,28 +569,25 @@ function Section({
 }
 
 function FieldRow({
-  keyName,
   field,
   draft,
   onChange,
 }: {
-  keyName: string;
   field: SettingField;
   draft: string | undefined;
   onChange: (value: string) => void;
 }) {
-  const isSecret = keyName.includes("secret") || keyName.includes("api_key");
   const dirty = draft !== undefined;
-  const showPlaceholder = field.set && draft === undefined;
+  const hasValue = field.set && draft === undefined;
 
   return (
     <label className="block">
       <div className="mb-1 flex items-center gap-2">
         <span className="text-xs font-medium">{field.label}</span>
-        {field.set && (
+        {field.set && !dirty && (
           <span className="inline-flex h-4 items-center gap-1 rounded-full bg-emerald-100 px-1.5 text-[9px] font-semibold text-emerald-700">
             <Lock className="h-2.5 w-2.5" />
-            set
+            saved
           </span>
         )}
         {dirty && (
@@ -604,9 +600,9 @@ function FieldRow({
         <p className="mb-1 text-[11px] text-muted-foreground">{field.hint}</p>
       )}
       <input
-        type={isSecret && !dirty ? "password" : "text"}
-        value={draft ?? ""}
-        placeholder={showPlaceholder ? field.masked || "(saved)" : "Enter value"}
+        type="text"
+        value={draft ?? (hasValue ? field.masked || "" : "")}
+        placeholder={hasValue ? "Type new value to overwrite" : "Enter value"}
         onChange={(e) => onChange(e.target.value)}
         className={cn(
           "h-9 w-full rounded-md border border-input bg-background px-3 text-sm",
