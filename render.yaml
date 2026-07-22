@@ -9,7 +9,7 @@ services:
     name: socialposter
     runtime: python
     buildCommand: |
-      cd frontend && npm ci && npm run build
+      cd frontend && npm ci && npm run build && cd ..
       mkdir -p src/socialposter/web/static/spa
       cp -r frontend/dist/* src/socialposter/web/static/spa/
       pip install .
