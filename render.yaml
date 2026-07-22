@@ -10,14 +10,13 @@ services:
     runtime: python
     buildCommand: |
       cd frontend && npm ci && npm run build && cd ..
+      mkdir -p src/socialposter/web/static/spa
+      cp -r frontend/dist/* src/socialposter/web/static/spa/
       pip install .
-      SITE_PKG=$(python -c "import socialposter; print(socialposter.__path__[0])")
-      mkdir -p "$SITE_PKG/web/static/spa"
-      cp -r frontend/dist/* "$SITE_PKG/web/static/spa/"
     # Single worker: APScheduler runs in-process, so multiple workers would
     # fire each scheduled post once per worker. Stick with 1 until the
     # scheduler moves to a separate dyno or uses a DB-backed lock.
-    startCommand: gunicorn "socialposter.web.app:create_app()" --bind 0.0.0.0:$PORT
+    startCommand: gunicorn "socialposter.web.app:create_app()" --bind 0.0.0.0:$PORT --workers 1
     envVars:
       - key: WEB_CONCURRENCY
         value: "1"
