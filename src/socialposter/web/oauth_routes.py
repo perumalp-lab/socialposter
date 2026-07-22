@@ -6,7 +6,7 @@ import hashlib
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import requests
 from flask import Blueprint, flash, redirect, request, session, url_for
@@ -54,18 +54,23 @@ def _validate_oauth_callback(platform_label: str):
     """
     if request.args.get("error"):
         desc = request.args.get("error_description") or request.args.get("error", "")
-        flash(f"{platform_label} authorization denied: {desc}", "error")
-        return redirect("/connections")
+        msg = f"{platform_label} authorization denied: {desc}"
+        print(f"[oauth] {msg}")
+        return redirect(f"/connections?error={quote(msg)}")
 
     state = request.args.get("state")
-    if state != session.pop("oauth_state", None):
-        flash("Invalid OAuth state.", "error")
-        return redirect("/connections")
+    sess_state = session.pop("oauth_state", None)
+    if state != sess_state:
+        msg = f"Invalid OAuth state (url={state!r} session={sess_state!r})"
+        print(f"[oauth] {msg}")
+        flash(msg, "error")
+        return redirect(f"/connections?error={quote(msg)}")
 
     code = request.args.get("code")
     if not code:
-        flash(f"No authorization code received from {platform_label}.", "error")
-        return redirect("/connections")
+        msg = f"No authorization code received from {platform_label}."
+        print(f"[oauth] {msg}")
+        return redirect(f"/connections?error={quote(msg)}")
     return code
 
 
@@ -401,8 +406,9 @@ def _callback_youtube():
         timeout=15,
     )
     if not resp.ok:
-        flash("Failed to exchange Google authorization code.", "error")
-        return redirect("/connections")
+        msg = f"Failed to exchange Google authorization code: {resp.status_code} {resp.text[:200]}"
+        print(f"[oauth] {msg}")
+        return redirect(f"/connections?error={quote(msg)}")
 
     data = resp.json()
     _save_connection(
@@ -411,7 +417,8 @@ def _callback_youtube():
         refresh_token=data.get("refresh_token"),
         expires_in=data.get("expires_in", 3600),
     )
-    flash("YouTube connected.", "success")
+    refresh_hint = "refresh_token" in data
+    print(f"[oauth] YouTube connected (has_refresh_token={refresh_hint})")
     return _oauth_complete_redirect()
 
 

@@ -28,6 +28,7 @@ export function ConnectionsPage() {
   const [busy, setBusy] = useState<string | null>(null);
 
   const justReturned = params.get("oauth") === "ok";
+  const oauthError = params.get("error");
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -50,15 +51,16 @@ export function ConnectionsPage() {
     void refresh();
   }, [refresh]);
 
-  // Drop the `?oauth=ok` flag once shown so it doesn't stick around.
+  // Drop query params flags once shown so they don't stick around.
   useEffect(() => {
-    if (!justReturned) return;
+    if (!justReturned && !oauthError) return;
     const t = setTimeout(() => {
       params.delete("oauth");
+      params.delete("error");
       setParams(params, { replace: true });
-    }, 4000);
+    }, 8000);
     return () => clearTimeout(t);
-  }, [justReturned, params, setParams]);
+  }, [justReturned, oauthError, params, setParams]);
 
   function platformByName(name: string): PlatformInfo | undefined {
     return platforms.find((p) => p.name === name);
@@ -90,6 +92,12 @@ export function ConnectionsPage() {
         <Notice tone="success">
           Welcome back — connection updated. If a platform still shows
           <em> not connected</em>, the OAuth flow may not have completed.
+        </Notice>
+      )}
+
+      {oauthError && (
+        <Notice tone="error">
+          OAuth error: {decodeURIComponent(oauthError)}
         </Notice>
       )}
 
