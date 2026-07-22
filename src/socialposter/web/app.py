@@ -570,8 +570,10 @@ def create_app(test_config: dict | None = None) -> Flask:
         # Heroku still emit. Rewrite it to the modern "postgresql://" prefix.
         if db_url.startswith("postgres://"):
             db_url = "postgresql://" + db_url[len("postgres://"):]
+        if not db_url.startswith(("postgresql://", "sqlite:///")):
+            print(f"[socialposter] WARNING: DATABASE_URL has invalid scheme '{db_url.split('://')[0]}://' — expected 'postgresql://'. Check your Render database URL.")
         app.config["SQLALCHEMY_DATABASE_URI"] = db_url
-        print(f"[socialposter] Using DATABASE_URL: {db_url[:30]}...")
+        print(f"[socialposter] Using DATABASE_URL: {db_url[:20]}...")
     else:
         db_path = Path.home() / ".socialposter" / "socialposter.db"
         db_path.parent.mkdir(parents=True, exist_ok=True)
