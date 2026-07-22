@@ -744,8 +744,9 @@ def _register_spa(app: Flask) -> None:
     me = Path(__file__).resolve()
     candidates = [
         me.parent / "static" / "spa",              # installed as package data
+        Path("/var/data/frontend/dist"),             # Render persistent disk
         Path.cwd() / "frontend" / "dist",          # working directory = repo root (Render)
-        me.parents[3] / "frontend" / "dist",       # editable install: src/socialposter/web/app.py -> repo root
+        me.parents[3] / "frontend" / "dist",       # editable install
         me.parents[2] / "frontend" / "dist",       # possible layout variant
         me.parents[1] / "frontend" / "dist",       # src/socialposter -> src/socialposter/frontend
         Path("/opt/render/project/src/frontend/dist"),
