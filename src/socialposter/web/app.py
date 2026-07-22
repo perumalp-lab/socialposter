@@ -727,21 +727,25 @@ def create_app(test_config: dict | None = None) -> Flask:
 def _register_spa(app: Flask) -> None:
     """Serve the built React SPA (frontend/dist) for any non-API path.
 
-    Looks for the build at <repo_root>/frontend/dist or
-    /opt/render/project/src/frontend/dist (Render's working dir). If absent
-    (eg. local dev where the SPA is served separately by Vite), this is a
-    no-op and Flask returns 404 for unknown paths as usual.
+    Looks for the build at several candidate locations. If absent (eg. local
+    dev where the SPA is served separately by Vite), this is a no-op and
+    Flask returns 404 for unknown paths as usual.
     """
+    me = Path(__file__).resolve()
     candidates = [
-        Path(__file__).resolve().parents[3] / "frontend" / "dist",
+        me.parents[3] / "frontend" / "dist",       # editable install: src/socialposter/web/app.py -> repo root
+        me.parents[2] / "frontend" / "dist",       # possible layout variant
+        me.parents[1] / "frontend" / "dist",       # src/socialposter -> src/socialposter/frontend
+        Path.cwd() / "frontend" / "dist",          # working directory = repo root
         Path("/opt/render/project/src/frontend/dist"),
+        Path("/opt/render/project/src/socialposter/frontend/dist"),
     ]
     spa_dir = next((p for p in candidates if (p / "index.html").exists()), None)
     if spa_dir is None:
-        app.logger.info("SPA build not found — Flask will not serve the SPA.")
+        app.logger.warning("SPA build not found in any candidate: %s", [str(c) for c in candidates])
         return
 
-    app.logger.info("Serving SPA from %s", spa_dir)
+    app.logger.warning("Serving SPA from %s", spa_dir)
     index_html = (spa_dir / "index.html").read_text(encoding="utf-8")
 
     # Reserved prefixes that the SPA must NOT shadow.
