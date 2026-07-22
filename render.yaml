@@ -9,7 +9,7 @@ services:
     name: socialposter
     runtime: python
     buildCommand: |
-      pip install ".[postgres]"
+      pip install .
       cd frontend && npm ci && npm run build
     # Single worker: APScheduler runs in-process, so multiple workers would
     # fire each scheduled post once per worker. Stick with 1 until the
