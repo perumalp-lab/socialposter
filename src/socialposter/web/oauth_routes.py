@@ -37,10 +37,7 @@ def _oauth_complete_redirect():
     """Redirect to mobile deep link, SPA connections page, or Flask page after OAuth."""
     if session.pop("oauth_source_mobile", False):
         return redirect("socialposter://oauth/complete")
-    spa_origin = session.pop("oauth_spa_origin", None)
-    if spa_origin:
-        return redirect(f"{spa_origin}/connections?oauth=ok")
-    return redirect("/connections")
+    return redirect("/connections?oauth=ok")
 
 
 def _validate_oauth_callback(platform_label: str):
