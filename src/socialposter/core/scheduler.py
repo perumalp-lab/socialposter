@@ -81,7 +81,7 @@ def _claim_due_posts(now: datetime) -> list:
     claimed = []
     for sched in due:
         original = sched.next_run_at
-        new_next_run = now + timedelta(minutes=sched.interval_minutes)
+        new_next_run = original + timedelta(minutes=sched.interval_minutes)
         rows_affected = ScheduledPost.query.filter(
             ScheduledPost.id == sched.id,
             ScheduledPost.next_run_at == original,

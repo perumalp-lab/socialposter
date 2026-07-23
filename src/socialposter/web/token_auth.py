@@ -234,7 +234,6 @@ def token_or_session_required(f):
             if payload:
                 user = db.session.get(User, payload["sub"])
                 if user:
-                    login_user(user, remember=False)
                     return f(*args, **kwargs)
 
         return jsonify({"error": "Authentication required"}), 401

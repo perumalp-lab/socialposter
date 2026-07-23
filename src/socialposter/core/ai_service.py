@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from abc import ABC, abstractmethod
 
 import requests
@@ -84,8 +85,22 @@ class ClaudeProvider(AIProvider):
         return data["content"][0]["text"]
 
 
+def _retry_on_429(fn, max_retries=3, base_delay=1.0):
+    """Retry a callable on HTTP 429 with exponential backoff."""
+    for attempt in range(max_retries):
+        try:
+            return fn()
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code == 429 and attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)
+                log.warning("AI 429 rate limited, retrying in %.1fs (attempt %d/%d)", delay, attempt + 1, max_retries)
+                time.sleep(delay)
+            else:
+                raise
+
+
 class OpenAIProvider(AIProvider):
-    """OpenAI Chat Completions API via requests."""
+    """OpenAI GPT-4o / GPT-4o-mini via requests."""
 
     API_URL = "https://api.openai.com/v1/chat/completions"
 
@@ -95,26 +110,28 @@ class OpenAIProvider(AIProvider):
         self.temperature = temperature
 
     def chat(self, system: str, user: str) -> str:
-        resp = requests.post(
-            self.API_URL,
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": self.model,
-                "max_tokens": 1024,
-                "temperature": self.temperature,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-            },
-            timeout=60,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data["choices"][0]["message"]["content"]
+        def _do():
+            resp = requests.post(
+                self.API_URL,
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": self.model,
+                    "max_tokens": 1024,
+                    "temperature": self.temperature,
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                },
+                timeout=60,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data["choices"][0]["message"]["content"]
+        return _retry_on_429(_do)
 
 
 class GeminiProvider(AIProvider):

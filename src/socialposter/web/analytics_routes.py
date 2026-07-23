@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, jsonify, render_template, request
 from flask_login import current_user, login_required
-from sqlalchemy import extract, func
+from sqlalchemy import func, text
 
 from socialposter.utils.datetime import isoformat_or
 from socialposter.utils.pagination import paginate_query
@@ -172,25 +172,25 @@ def api_best_times():
     """Best posting hours by average engagement."""
     rows = (
         db.session.query(
-            extract("hour", PostHistory.created_at).label("hour"),
+            func.extract(text("hour"), PostHistory.created_at).label("hour"),
             func.count(PostHistory.id).label("post_count"),
         )
         .filter(
             PostHistory.user_id == current_user.id,
             PostHistory.success == True,  # noqa: E712
         )
-        .group_by(extract("hour", PostHistory.created_at))
+        .group_by(func.extract(text("hour"), PostHistory.created_at))
         .all()
     )
 
     # Build engagement per hour from EngagementMetric
     eng_rows = (
         db.session.query(
-            extract("hour", EngagementMetric.fetched_at).label("hour"),
+            func.extract(text("hour"), EngagementMetric.fetched_at).label("hour"),
             func.avg(EngagementMetric.engagement_rate).label("avg_rate"),
         )
         .filter(EngagementMetric.user_id == current_user.id)
-        .group_by(extract("hour", EngagementMetric.fetched_at))
+        .group_by(func.extract(text("hour"), EngagementMetric.fetched_at))
         .all()
     )
     eng_by_hour = {r.hour: round(r.avg_rate or 0, 2) for r in eng_rows}
@@ -216,8 +216,8 @@ def api_heatmap():
 
     rows = (
         db.session.query(
-            extract("dow", PostHistory.created_at).label("dow"),
-            extract("hour", PostHistory.created_at).label("hour"),
+            func.extract(text("dow"), PostHistory.created_at).label("dow"),
+            func.extract(text("hour"), PostHistory.created_at).label("hour"),
             func.count(PostHistory.id).label("count"),
         )
         .filter(
@@ -225,7 +225,7 @@ def api_heatmap():
             PostHistory.created_at >= since,
             PostHistory.success == True,  # noqa: E712
         )
-        .group_by("dow", "hour")
+        .group_by(func.extract(text("dow"), PostHistory.created_at), func.extract(text("hour"), PostHistory.created_at))
         .all()
     )
 

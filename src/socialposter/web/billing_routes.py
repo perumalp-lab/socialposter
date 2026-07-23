@@ -479,11 +479,7 @@ def _apply_to_row(sub_row: Subscription, stripe_sub) -> None:
             sub_row.channels = quantity
 
     status = sub_row.status or ""
-    if status in ("active", "trialing"):
-        # Only set plan_tier if it hasn't been set from checkout metadata
-        if not sub_row.plan_tier or sub_row.plan_tier == "free":
-            sub_row.plan_tier = "essentials"
-    else:
+    if status not in ("active", "trialing"):
         sub_row.plan_tier = "free"
         sub_row.billing_interval = None
 

@@ -390,6 +390,10 @@ def _callback_youtube():
     code = result
     client_id = AppSetting.get("google_client_id")
     client_secret = AppSetting.get("google_client_secret")
+    if not client_id or not client_secret:
+        msg = "Google OAuth credentials not configured by admin."
+        print(f"[oauth] {msg}")
+        return redirect(f"/connections?error={quote(msg)}")
 
     resp = requests.post(
         "https://oauth2.googleapis.com/token",
@@ -416,6 +420,7 @@ def _callback_youtube():
     )
     refresh_hint = "refresh_token" in data
     print(f"[oauth] YouTube connected (has_refresh_token={refresh_hint})")
+    flash("YouTube connected.", "success")
     return _oauth_complete_redirect()
 
 

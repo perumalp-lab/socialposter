@@ -158,7 +158,7 @@ def _mask_secret(value: str) -> str:
         return ""
     if len(value) <= 6:
         return "*" * len(value)
-    return value[:3] + "*" * (len(value) - 6) + value[-3:]
+    return value[:3] + "*" * max(len(value) - 6, 0) + value[-3:]
 
 
 def _admin_only():
@@ -304,9 +304,6 @@ def api_admin_update_settings():
         if key not in allowed:
             continue
         value = str(value or "").strip()
-        if not value:
-            # Empty value -> skip (do not clobber existing)
-            continue
         AppSetting.set(key, value)
         updated.append(key)
     return jsonify({"ok": True, "updated": updated})
